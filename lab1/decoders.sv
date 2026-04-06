@@ -1,5 +1,5 @@
 module decoder2_4(output [3:0] z_o
-						,input [1:0] dec_i);
+				 ,input [1:0] dec_i);
 						
 	logic [1:0] dec_i_n;
 	
@@ -13,8 +13,8 @@ module decoder2_4(output [3:0] z_o
 endmodule 
 
 module decoder3_8(output [7:0] z_o
-						,input [2:0] dec_i
-						,input en);
+				 ,input [2:0] dec_i
+				 ,input en);
 	
 	logic [2:0] dec_i_n;
 	
@@ -34,8 +34,8 @@ endmodule
 
 
 module decoder5_32(output [31:0] z_o
-						,input [4:0] dec_i
-						,input en);
+				  ,input [4:0] dec_i
+				  ,input en);
 	
 	logic [3:0] d4_0_o;
 	
