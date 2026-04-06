@@ -84,10 +84,12 @@ endmodule
 module mux32_1x64(output [63:0] z_o
 				 ,input [31:0][63:0] words_i 
 				 ,input [4:0] sel_i);
-	generate (genvar i) 
+	
+	genvar i;
+	generate 
 		for (i = 0; i < 64; i++) begin : gen_muxes
 			mux32_1 m (.z_o(z_o[i])
-					  ,.mux_i(words_i[i][31:0])
+					  ,.mux_i(words_i[31:0][i])
 				      ,.sel_i(sel_i));
 		end
 	endgenerate
