@@ -1,3 +1,5 @@
+`timescale 1ns/10ps
+
 module mux2_1(output logic z_o
 			 ,input logic a_i, b_i
 			 ,input logic sel_i);
