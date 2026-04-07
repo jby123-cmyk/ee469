@@ -40,7 +40,7 @@ module decoder5_32(output logic [31:0] z_o
 	
 	logic [3:0] d4_0_o;
 	
-	decoder2_4 d4_0 (.z_o(d4_0_o), .dec_i(dec_i[4:3]), .en_i(en)); 
+	decoder2_4 d4_0 (.z_o(d4_0_o), .dec_i(dec_i[4:3]), .en_i(en_i)); 
 	decoder3_8 d8_0 (.z_o(z_o[7:0]), .dec_i(dec_i[2:0]), .en_i(d4_0_o[0]));
 	decoder3_8 d8_1 (.z_o(z_o[15:8]), .dec_i(dec_i[2:0]), .en_i(d4_0_o[1]));
 	decoder3_8 d8_2 (.z_o(z_o[23:16]), .dec_i(dec_i[2:0]), .en_i(d4_0_o[2]));

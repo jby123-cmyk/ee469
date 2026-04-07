@@ -95,7 +95,7 @@ module mux32_1x64(output logic [63:0] z_o
 				assign word_i[j] = words_i[j][i];
 			end
 			mux32_1 m (.z_o(z_o[i])
-					  ,.mux_i(word_i[i])
+					  ,.mux_i(word_i)
 				      ,.sel_i(sel_i));
 		end
 	endgenerate
