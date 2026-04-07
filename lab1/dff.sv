@@ -8,26 +8,26 @@ module D_FF (q, d, reset, clk);
 			q <= d; // Otherwise out = d
 endmodule 
 
-module D_FF_64(input [63:0] d
-			  ,input reset, en
-			  ,input clk
-			  ,output [63:0] q);
+module D_FF_64(input logic [63:0] d
+			  ,input logic reset, en_i
+			  ,input logic clk
+			  ,output logic [63:0] q);
 	
 	genvar i;
 	generate  
 		for (i = 0; i < 64; i++) begin : gen_dffs
 			logic mux_out;
-			mux2_1 mux (.z_o(mux_out), .a_i(q[i]), .b_i(d[i]), .sel_i(en));
+			mux2_1 mux (.z_o(mux_out), .a_i(q[i]), .b_i(d[i]), .sel_i(en_i));
 			D_FF dff (.q(q[i]), .d(mux_out), .reset(reset), .clk(clk));
 		end
 	endgenerate
 endmodule 
 
-module D_FF_32x64(input [63:0] d
-				  ,input reset
-				  ,input clk
-				  ,input [31:0] row_en
-				  ,output [31:0][63:0] q);
+module D_FF_32x64(input logic [63:0] d
+				  ,input logic reset
+				  ,input logic clk
+				  ,input logic [31:0] row_en
+				  ,output logic [31:0][63:0] q);
 	
 	genvar i;
 	generate 

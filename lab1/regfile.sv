@@ -1,6 +1,7 @@
-module regfile(logic [63:0] ReadData1, ReadData2, WriteData
-              ,logic [4:0] ReadRegister1, ReadRegister2, WriteRegister
-              ,logic RegWrite, clk);
+module regfile(output logic [63:0] ReadData1, ReadData2
+              ,input logic [63:0] WriteData
+              ,input logic [4:0] ReadRegister1, ReadRegister2, WriteRegister
+              ,input logic RegWrite, clk);
     logic [31:0][63:0] registers;
 
     mux32_1x64 mux1 (.z_o(read_data_1), .words_i(registers), .sel_i(read_addr_1));
