@@ -32,7 +32,7 @@ module D_FF_32x64(input logic [63:0] d
 	genvar i;
 	generate 
 		for (i = 0; i < 31; i++) begin : gen_dffs
-			D_FF_64 dff (.q(q[i]), .d(d), .reset(reset), .clk(clk), .en(row_en[i]));
+			D_FF_64 dff (.q(q[i]), .d(d), .reset(reset), .clk(clk), .en_i(row_en[i]));
 		end
 	endgenerate
 	
