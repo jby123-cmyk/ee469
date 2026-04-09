@@ -1,0 +1,8 @@
+module mux2_1(input a_i, b_i,
+				 ,input sel_i
+				 ,output z_o);
+	not sel_not (sel_i_n, sel_i);	
+	nand sel_a_mid (sel_a, sel_i_n, a_i); 
+	nand sel_b_mid (sel_b, sel_i, b_i);
+	nand out (z_o, sel_a, sel_b);
+endmodule 
