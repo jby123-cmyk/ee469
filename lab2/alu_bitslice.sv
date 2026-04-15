@@ -27,11 +27,14 @@ module alu_bitslice(input logic A, B, Cin,
     logic [7:0] options;
 
     assign options[0] = B;
+    assign options[1] = 64'bX; // unused
     assign options[2] = adder_res;
     assign options[3] = adder_res;
     assign options[4] = and_res;
     assign options[5] = or_res;
     assign options[6] = xor_res;
+    assign options[7] = 64'bX; // unused
+
 
     mux8_1 mux (.z_o(result), .mux_i(options), .sel_i(cntrl));
 endmodule
