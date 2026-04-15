@@ -1,3 +1,5 @@
+`timescale 1ns/10ps
+
 module alu (input logic [63:0] A, B
            ,input logic [2:0] cntrl
            ,output logic [63:0] result
@@ -23,7 +25,11 @@ module alu (input logic [63:0] A, B
     assign negative = result[63];
     assign carry_out = carry_out_bitslice[64];
     check_zero zero_checker (.result(result), .zero(zero));
-    xnor #50 overflow_checker (overflow, carry_out_bitslice[64], carry_out_bitslice[63]);
+
+    logic overflow_not;
+
+    xor #0.050 overflow_checker_not (overflow_not, carry_out_bitslice[64], carry_out_bitslice[63]);
+    not #0.050 overflow_checker (overflow, overflow_not);
 endmodule
 
 module check_zero(input logic [63:0] result,
@@ -35,15 +41,15 @@ module check_zero(input logic [63:0] result,
     genvar i;
     generate
         for (i = 0; i < 16; i++) begin : gen_nors_1
-            nor #50 nor_gate (nor_res_0[i], result[i*4+3:i*4]);
+            nor #0.050 nor_gate (nor_res_0[i], result[i*4+3:i*4]);
         end
     endgenerate
 
     generate 
         for (i=0; i < 4; i++) begin : gen_nors_0
-            nor #50 nor_gate (nor_res_1[i], nor_res_0[i*4+3:i*4]);
+            nor #0.050 nor_gate (nor_res_1[i], nor_res_0[i*4+3:i*4]);
         end
     endgenerate
 
-    nor #50 nor_gate (zero, nor_res_1[3:0]);
+    nor #0.050 nor_gate (zero, nor_res_1[3:0]);
 endmodule

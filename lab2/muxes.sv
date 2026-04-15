@@ -6,10 +6,10 @@ module mux2_1(output logic z_o
 	
 	logic sel_i_n, sel_a, sel_b;
 	
-	not #50 sel_not (sel_i_n, sel_i);	
-	nand #50 sel_a_mid (sel_a, sel_i_n, a_i); 
-	nand #50 sel_b_mid (sel_b, sel_i, b_i);
-	nand #50 out (z_o, sel_a, sel_b);
+	not #0.050 sel_not (sel_i_n, sel_i);	
+	nand #0.050 sel_a_mid (sel_a, sel_i_n, a_i); 
+	nand #0.050 sel_b_mid (sel_b, sel_i, b_i);
+	nand #0.050 out (z_o, sel_a, sel_b);
 endmodule 
 
 module mux4_1(output logic z_o

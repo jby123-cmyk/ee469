@@ -1,3 +1,5 @@
+`timescale 1ns/10ps
+
 module alu_bitslice(input logic A, B, Cin,
                     input logic [2:0] cntrl,
                     output logic result,
@@ -12,12 +14,12 @@ module alu_bitslice(input logic A, B, Cin,
 
     logic and_res, or_res, xor_res;
 
-    and #50 and_gate (and_res, A, B);
-    or #50 or_gate (or_res, A, B);
-    xor #50 xor_gate (xor_res, A, B);
+    and #0.050 and_gate (and_res, A, B);
+    or #0.050 or_gate (or_res, A, B);
+    xor #0.050 xor_gate (xor_res, A, B);
 
     logic B_sel;
-    xor #50 sub_sel (B_sel, B, cntrl[0]);
+    xor #0.050 sub_sel (B_sel, B, cntrl[0]);
     
     logic adder_res;
     full_adder adder (.A(A), .B(B_sel), .Cin(Cin), .sum(adder_res), .carry_out(carry_out));
@@ -39,9 +41,9 @@ module full_adder(input logic A, B, Cin,
     
     logic s0, c0, c1;
 
-    xor #50 xor_gate (s0, A, B);
-    xor #50 xor_gate2 (sum, s0, Cin);
-    and #50 and_gate (c0, A, B);
-    and #50 and_gate2 (c1, s0, Cin);
-    or #50 or_gate (carry_out, c0, c1);
+    xor #0.050 xor_gate (s0, A, B);
+    xor #0.050 xor_gate2 (sum, s0, Cin);
+    and #0.050 and_gate (c0, A, B);
+    and #0.050 and_gate2 (c1, s0, Cin);
+    or #0.050 or_gate (carry_out, c0, c1);
 endmodule
