@@ -100,21 +100,3 @@ module mux32_1x64(output logic [63:0] z_o
 		end
 	endgenerate
 endmodule 
-
-module mux8_1x64(output logic [63:0] z_o
-				 ,input logic [8:0][63:0] words_i 
-				 ,input logic [2:0] sel_i);
-	
-	genvar i, j;
-	generate 
-		for (i = 0; i < 64; i++) begin : gen_muxes
-			logic [8:0] word_i;
-			for (j = 0; j < 8; j++) begin : gen_words
-				assign word_i[j] = words_i[j][i];
-			end
-			mux8_1 m (.z_o(z_o[i])
-					  ,.mux_i(word_i)
-				      ,.sel_i(sel_i));
-		end
-	endgenerate
-endmodule 
