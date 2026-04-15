@@ -38,7 +38,7 @@ module alustim();
 	logic [63:0] test_val;
 	initial begin
 	
-		$display("%t testing PASS_A operations", $time);
+		$display("%t testing PASS_B operations", $time);
 		cntrl = ALU_PASS_B;
 		for (i=0; i<100; i++) begin
 			A = $random(); B = $random();
@@ -51,6 +51,29 @@ module alustim();
 		A = 64'h0000000000000001; B = 64'h0000000000000001;
 		#(delay);
 		assert(result == 64'h0000000000000002 && carry_out == 0 && overflow == 0 && negative == 0 && zero == 0);
+		
+		$display("%t testing subtraction", $time);
+		cntrl = ALU_SUBTRACT;
+		A = 64'h0000000000000001; B = 64'h0000000000000001;
+		//subtracting resulting in zero
+		#(delay);
+        assert(result == 64'h0000000000000000 && zero == 1 && negative == 0);
+
+		A = 64'h0000000000000001; B = 64'h0000000000000002;
+		//subtracting resulting in negative
+		#(delay);
+		assert(result == 64'hFFFFFFFFFFFFFFFF && zero == 0 && negative == 1);
+
+		$display("%t testing logical AND", $time);
+		cntrl = ALU_AND;
+		//triggers zero
+		A = 64'hF0F0F0F0F0F0F0F0; B = 64'h0F0F0F0F0F0F0F0F;
+		#(delay);
+		assert(result == 64'h0000000000000000 && zero == 1 && negative == 0);
+
+		A = 64'h8000000000000000; B = 64'h8000000000000000;
+		#(delay);
+		assert(result == 64'h8000000000000000 && zero == 0 && negative == 1);
 		
 	end
 endmodule
