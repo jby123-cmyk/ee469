@@ -60,7 +60,7 @@ module alustim();
 		//triggers overflow
 		A = 64'h7FFFFFFFFFFFFFFF; B = 64'h0000000000000001;
 		#(delay);
-		assert(result == 64'h8000000000000000 && overflow == 1 && zero == 0 && negative == 1);
+		assert(result == 64'h8000000000000000 && overflow == 1 && carry_out == 0 && negative == 1);
 		
 		$display("%t testing subtraction", $time);
 		cntrl = ALU_SUBTRACT;
@@ -82,9 +82,9 @@ module alustim();
 		assert(result == 64'h0000000000000000 && zero == 1 && negative == 0);
 
 		//triggers negative
-		A = 64'h8000000000000000; B = 64'h8000000000000000;
+		A = 64'h8000000000000001; B = 64'h8000000000000001;
 		#(delay);
-		assert(result == 64'h8000000000000000 && zero == 0 && negative == 1);
+		assert(result == 64'h8000000000000001 && zero == 0 && negative == 1);
 
 		$display("%t testing logical OR", $time);
 		cntrl = ALU_OR;
@@ -98,11 +98,14 @@ module alustim();
 		//any num XOR by itself == 0
 		A = 64'hFFFFFFFFFFFFFFFF; B = 64'hFFFFFFFFFFFFFFFF;
 		#(delay);
-		assert(64'h0000000000000000 && zero == 1 && negative == 0);
+		assert(result == 64'h0000000000000000 && zero == 1 && negative == 0);
 
 		A = 64'h0000000000000000; B = 64'hFFFFFFFFFFFFFFFF;
 		#(delay);
-		assert(64'hFFFFFFFFFFFFFFFF && negative == 1 && zero == 0);
+		assert(result == 64'hFFFFFFFFFFFFFFFF && negative == 1 && zero == 0);
+
+
+
 		
 	end
 endmodule

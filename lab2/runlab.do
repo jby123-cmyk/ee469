@@ -9,16 +9,20 @@ vlog "./muxes.sv"
 vlog "./dff.sv"
 vlog "./regfile.sv"
 vlog "./regstim.sv"
+vlog "./alu.sv"
+vlog "./alustim.sv"
+vlog "./alu_bitslice.sv"
+
 
 # Call vsim to invoke simulator
 #     Make sure the last item on the line is the name of the
 #     testbench module you want to execute.
-vsim -voptargs="+acc" -t 1ps -lib work regstim
+vsim -voptargs="+acc" -t 1ps -lib work alustim
 
 # Source the wave do file
 #     This should be the file that sets up the signal window for
 #     the module you are testing.
-do regstim.do
+do alustim.do
 
 # Set the window types
 view wave
