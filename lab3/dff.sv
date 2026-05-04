@@ -8,6 +8,13 @@ module D_FF (q, d, reset, clk);
 			q <= d; // Otherwise out = d
 endmodule 
 
+module D_FF_en (q, d, reset, clk, en_i);
+	logic mux_out;
+
+	mux2_1 mux (.z_o(mux_out), .a_i(q), .b_i(d), .sel_i(en_i));
+	D_FF dff (.q(q), .d(mux_out), .reset(reset), .clk(clk));
+endmodule 
+
 module D_FF_64(input logic [63:0] d
 			  ,input logic reset, en_i
 			  ,input logic clk
