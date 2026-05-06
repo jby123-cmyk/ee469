@@ -1,12 +1,14 @@
+`timescale 1ns/10ps
+
 module cpu(input logic clk, reset);
-
-
 //***************************************************************//
 // Instruction fetch circuit
 //***************************************************************//
     logic [31:0] instruction;
+    logic [63:0] pc_r;
+    logic [63:0] pc_n;
 
-    instructmem (
+    instructmem instruction_memory (
 	    .address(pc_r),
 	    .instruction(instruction),
 	    .clk(clk)
@@ -21,13 +23,16 @@ module cpu(input logic clk, reset);
     assign rn = instruction[9:5];
     assign rm = instruction[20:16];
     
-    logic [12:0] imm12;
-    assign imm12 = {{52{instruction[21]}}, instruction[21:10]};
+    logic [63:0] addi_imm;
+    assign addi_imm = {52'b0, instruction[21:10]};
+
+    logic [63:0] d_imm;
+    assign d_imm = {{55{instruction[20]}}, instruction[20:12]};
 
     logic [25:0] imm_26;
     assign imm_26 = instruction[25:0];
 
-    logic [18:0] imm_19;
+    logic [25:0] imm_19;
     assign imm_19 = {{7{instruction[23]}}, instruction[23:5]};
 
 
@@ -41,8 +46,11 @@ module cpu(input logic clk, reset);
     logic branch_link_sel;
     logic branch_zero_sel;
     logic set_flags;
+    logic alu_src;
+    logic reg2loc;
+    logic addi_en;
 
-    control(.opcode(opcode)
+    control control_unit (.opcode(opcode)
               ,.alu_cntrl(alu_cntrl)
               ,.reg_write_en(reg_write_en)
               ,.ldur_en(ldur_en)
@@ -52,7 +60,10 @@ module cpu(input logic clk, reset);
               ,.branch_cond_sel(branch_cond_sel)
               ,.branch_link_sel(branch_link_sel)
               ,.branch_zero_sel(branch_zero_sel)
-              ,.set_flags(set_flags));
+              ,.set_flags(set_flags)
+              ,.alu_src(alu_src)
+              ,.reg2loc(reg2loc)
+              ,.addi_en(addi_en));
 
 
 //***************************************************************//
@@ -65,13 +76,12 @@ module cpu(input logic clk, reset);
     logic [4:0] ReadRegister1;
     logic [4:0] ReadRegister2;
     logic [4:0] WriteRegister;
-    logic reg_write_en;
 
     assign ReadRegister1 = rn;
     assign ReadRegister2 = reg2loc? rd : rm;
-    assign WriteRegister = rd;
+    assign WriteRegister = branch_link_sel ? 5'b11110 : rd;
 
-    regfile (
+    regfile registers (
         .ReadData1(ReadData1),
         .ReadData2(ReadData2),
         .WriteData(WriteData),
@@ -88,7 +98,6 @@ module cpu(input logic clk, reset);
 
     logic [63:0] alu_A;
     logic [63:0] alu_B;
-    logic [2:0] alu_cntrl;
     logic [63:0] alu_result;
     logic negative_r, negative_n;
     logic zero_r, zero_n;
@@ -96,11 +105,13 @@ module cpu(input logic clk, reset);
     logic carry_out_r, carry_out_n;
 
     assign alu_A = ReadData1;
-    assign alu_B = alu_src? imm12 : ReadData2;
+    assign alu_B = (alu_src && (ldur_en || stur_en)) ? d_imm : 
+                   (alu_src && (addi_en)) ? addi_imm :
+                   ReadData2;
 
-    alu (
+    alu alu (
         .A(alu_A),
-        .B(alu_b),
+        .B(alu_B),
         .cntrl(alu_cntrl),
         .result(alu_result),
         .negative(negative_n),
@@ -120,18 +131,18 @@ module cpu(input logic clk, reset);
 
     // Standard PC + 4
     logic [63:0] pc_add_4;
-    pc_adder(.pc_r(pc_r),
+    pc_adder pc_p4_adder(.pc_r(pc_r),
                     .pc_n(pc_add_4));
 
     // Standard branch, branch link
     logic [63:0] pc_add_imm_26;
-    branch_adder(.pc_r(pc_r),
+    branch_adder pc_imm_26_adder (.pc_r(pc_r),
                         .imm(imm_26),
                         .pc_n(pc_add_imm_26));
 
     // Conditional branch, branch less than
     logic [63:0] pc_add_imm_19;
-    branch_adder(.pc_r(pc_r),
+    branch_adder pc_imm_19_adder (.pc_r(pc_r),
                         .imm(imm_19),
                         .pc_n(pc_add_imm_19));
 
@@ -143,33 +154,22 @@ module cpu(input logic clk, reset);
     logic pc_26_sel;
     assign pc_26_sel = branch_imm_sel | branch_link_sel;
 
-    mux2_1(.z_o(pc_26_out),
-            .a_i(pc_add_4),
-            .b_i(pc_add_imm_26),
-            .sel_i(pc_26_sel));
+    assign pc_26_out = pc_26_sel ? pc_add_imm_26 : pc_add_4;
 
     // Conditional branch, branch less than
     logic [63:0] pc_19_out;
 
     logic pc_19_sel;
-    assign pc_19_sel = (branch_cond_sel & (negative_r ^ overflow_r)) | (branch_zero_sel & zero_r);
-    mux2_1(.z_o(pc_19_out),
-            .a_i(pc_26_out),
-            .b_i(pc_add_imm_19),
-            .sel_i(pc_19_sel));
+    assign pc_19_sel = (branch_cond_sel & (negative_r ^ overflow_r)) | (branch_zero_sel & zero_n);
+    assign pc_19_out = pc_19_sel ? pc_add_imm_19 : pc_26_out;
 
     // Branch register
-    mux2_1(.z_o(pc_n),
-            .a_i(pc_19_out),
-            .b_i(ReadData1),
-            .sel_i(branch_reg_sel));
+    assign pc_n = branch_reg_sel ? ReadData2 : pc_19_out;
 
 //***************************************************************//
 // Data memory circuit
 //***************************************************************//
 
-    logic stur_en;
-    logic ldur_en;
     logic [63:0] mem_addr;
     logic [63:0] stur_data;
     logic [3:0] xfer_size;
@@ -177,10 +177,12 @@ module cpu(input logic clk, reset);
 
     assign mem_addr = alu_result;
     assign stur_data = ReadData2;
-    assign xfer_size = 7'b1000000;
-    assign WriteData = ldur_en? ldur_data : alu_result;
+    assign xfer_size = 4'd8;
+    assign WriteData = ldur_en? ldur_data 
+                    : branch_link_sel ? pc_add_4
+                    : alu_result;
 
-    datamem (
+    datamem data_memory(
         .address(mem_addr),
         .write_enable(stur_en),
         .read_enable(ldur_en),
@@ -191,7 +193,7 @@ module cpu(input logic clk, reset);
 	);
 
     // PC update
-    always_ff @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk) begin
         if (reset) begin
             pc_r <= 64'h0;
         end else begin

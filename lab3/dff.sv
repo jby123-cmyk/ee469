@@ -1,3 +1,5 @@
+`timescale 1ns/10ps
+
 module D_FF (q, d, reset, clk);
 	output reg q;
 	input d, reset, clk;
@@ -8,11 +10,15 @@ module D_FF (q, d, reset, clk);
 			q <= d; // Otherwise out = d
 endmodule 
 
-module D_FF_en (q, d, reset, clk, en_i);
+module D_FF_en (output logic q, 
+				input logic d, 
+				input logic reset, 
+				input logic clk, 
+				input logic en_i
+				);
 	logic mux_out;
-
 	mux2_1 mux (.z_o(mux_out), .a_i(q), .b_i(d), .sel_i(en_i));
-	D_FF dff (.q(q), .d(mux_out), .reset(reset), .clk(clk));
+	D_FF dff_en (.q(q), .d(mux_out), .reset(reset), .clk(clk));
 endmodule 
 
 module D_FF_64(input logic [63:0] d

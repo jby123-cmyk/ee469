@@ -1,3 +1,5 @@
+`timescale 1ns/10ps
+
 module regfile(output logic [63:0] ReadData1, ReadData2
               ,input logic [63:0] WriteData
               ,input logic [4:0] ReadRegister1, ReadRegister2, WriteRegister
