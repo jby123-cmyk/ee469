@@ -26,30 +26,27 @@ module alu (input logic [63:0] A, B
     assign carry_out = carry_out_bitslice[64];
     check_zero zero_checker (.result(result), .zero(zero));
 
-    logic overflow_not;
-
-    xor #0.050 overflow_checker_not (overflow_not, carry_out_bitslice[64], carry_out_bitslice[63]);
-    not #0.050 overflow_checker (overflow, overflow_not);
+    xor #0.050 overflow_checker (overflow, carry_out_bitslice[64], carry_out_bitslice[63]);
 endmodule
 
 module check_zero(input logic [63:0] result,
                   output logic zero);
     
-    logic [15:0] nor_res_0;
-    logic [3:0] nor_res_1;
+    logic [15:0] or_res_0;
+    logic [3:0] or_res_1;
 
     genvar i;
     generate
-        for (i = 0; i < 16; i++) begin : gen_nors_1
-            nor #0.050 nor_gate (nor_res_0[i], result[i*4+3:i*4]);
+        for (i = 0; i < 16; i++) begin : gen_ors_1
+            nor #0.050 or_gate_0 (or_res_0[i], result[i*4+3], result[i*4+2], result[i*4+1], result[i*4]);
         end
     endgenerate
 
     generate 
         for (i=0; i < 4; i++) begin : gen_nors_0
-            nor #0.050 nor_gate (nor_res_1[i], nor_res_0[i*4+3:i*4]);
+            nand #0.050 or_gate_1 (or_res_1[i], or_res_0[i*4+3], or_res_0[i*4+2], or_res_0[i*4+1], or_res_0[i*4]);
         end
     endgenerate
 
-    nor #0.050 nor_gate (zero, nor_res_1[3:0]);
+    nor #0.050 nor_gate (zero, or_res_1[3:0]);
 endmodule

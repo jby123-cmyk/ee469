@@ -99,7 +99,7 @@ module control(input logic [10:0] opcode
                 addi_en = 1'b0;
             end
             // Add immediate
-            11'b100_0100_100?: begin
+            11'b100_100_0100?: begin
                 alu_cntrl = 3'b010;
                 reg_write_en = 1'b1;
                 ldur_en = 1'b0;

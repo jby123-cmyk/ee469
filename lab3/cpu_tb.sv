@@ -10,20 +10,23 @@ module cpu_tb();
 
     //generate long clock cycle
     always begin
-        #50 clk = ~clk;
+        #100 clk = ~clk;
     end
 
     initial begin
         clk = 0;
         reset = 1;
-        //hold reset
-        #50;
+        
+        @(posedge clk);
+        @(posedge clk);
 
-        reset = 0;
+        //hold reset
+        #10 reset = 0;
 
         //keep clk cycle for long time
-        for(int i=0; i<100; i++) begin
+        for(int i=0; i<10; i++) begin
             @(posedge clk);
         end
+
     end
 endmodule

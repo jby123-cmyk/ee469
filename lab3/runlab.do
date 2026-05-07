@@ -17,6 +17,7 @@ vlog "./control.sv"
 vlog "./adders.sv"
 vlog "./alu_bitslice.sv"
 vlog "./alu.sv"
+vlog "./math.sv"
 
 # Call vsim to invoke simulator
 #     Make sure the last item on the line is the name of the
