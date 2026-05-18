@@ -21,6 +21,19 @@ module D_FF_en (output logic q,
 	D_FF dff_en (.q(q), .d(mux_out), .reset(reset), .clk(clk));
 endmodule 
 
+module D_FF_param (#parameter length = 1) 
+				  (input logic [length-1:0] d
+				  ,input logic reset
+				  ,input logic clk
+				  ,output logic [length-1:0] q
+	genvar i;
+	generate 
+		for (i = 0; i < length; i++) begin : gen_dffs
+			D_FF dff (.q(q[i]), .d(d[i]), .reset(reset), .clk(clk));
+		end
+	endgenerate
+endmodule 
+
 module D_FF_64(input logic [63:0] d
 			  ,input logic reset, en_i
 			  ,input logic clk
