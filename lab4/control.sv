@@ -3,13 +3,13 @@
 module control(input logic [10:0] opcode
               ,output logic [2:0] alu_cntrl // ex 
               ,output logic reg_write_en // wb
-              ,output logic ldur_en // mem and ex
-              ,output logic stur_en // mem and ex 
-              ,output logic branch_imm_sel // ex 
+              ,output logic ldur_en // mem
+              ,output logic stur_en // mem 
+              ,output logic branch_uncond // ex
+              ,output logic branch_zero // ex 
+              ,output logic branch_lt // ex
               ,output logic branch_reg_sel // ex
-              ,output logic branch_cond_sel // ex
               ,output logic branch_link_sel // wb
-              ,output logic branch_zero_sel // ex
               ,output logic set_flags // ex
               ,output logic alu_src // ex
               ,output logic reg2loc // id
@@ -24,11 +24,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b1;
+                branch_uncond = 1'b1;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;   
                 alu_src = 1'b0;
                 reg2loc = 1'b0;
@@ -40,11 +40,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b1;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b1;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b0;
                 reg2loc = 1'b0;
@@ -56,11 +56,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b1;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b1;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;   
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b1;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b1;
                 reg2loc = 1'b0;
@@ -72,11 +72,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b1;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b1;
                 reg2loc = 1'b1; 
@@ -88,11 +88,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b1;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b1;
                 set_flags = 1'b0;
                 alu_src = 1'b0;
                 reg2loc = 1'b1;
@@ -104,11 +104,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b1;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b1;
                 reg2loc = 1'b0;
@@ -120,11 +120,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b1;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b1;
                 alu_src = 1'b0;
                 reg2loc = 1'b0;
@@ -136,11 +136,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b1;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b1;
                 alu_src = 1'b0;
                 reg2loc = 1'b0;
@@ -152,11 +152,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b1;
                 ldur_en = 1'b1;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b1;
                 reg2loc = 1'b0;
@@ -168,11 +168,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b1;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b1;
                 reg2loc = 1'b1;
@@ -183,11 +183,11 @@ module control(input logic [10:0] opcode
                 reg_write_en = 1'b0;
                 ldur_en = 1'b0;
                 stur_en = 1'b0;
-                branch_imm_sel = 1'b0;
+                branch_uncond = 1'b0;
+                branch_zero = 1'b0;
+                branch_lt = 1'b0;
                 branch_reg_sel = 1'b0;
-                branch_cond_sel = 1'b0;
                 branch_link_sel = 1'b0;
-                branch_zero_sel = 1'b0;
                 set_flags = 1'b0;
                 alu_src = 1'b0;
                 reg2loc = 1'b0;
