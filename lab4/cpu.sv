@@ -2,11 +2,16 @@
 
 module cpu(input logic clk, reset);
 //***************************************************************//
-// Instruction fetch circuit
+// Instruction fetch stage 
 //***************************************************************//
     logic [31:0] instruction;
     logic [63:0] pc_r;
     logic [63:0] pc_n;
+
+    // PC = PC + 4
+    logic [63:0] pc_add_4;
+    pc_adder pc_p4_adder(.pc_r(pc_r),
+                    .pc_n(pc_add_4));
 
     instructmem instruction_memory (
 	    .address(pc_r),
@@ -14,7 +19,7 @@ module cpu(input logic clk, reset);
 	    .clk(clk)
 	);
 
-    // Instruction decode circuit
+    // ID stage: instruction decode + control
     logic [10:0] opcode;
     assign opcode = instruction[31:21];
 
@@ -67,7 +72,7 @@ module cpu(input logic clk, reset);
 
 
 //***************************************************************//
-// Register file circuit
+// Instruction decode and register read
 //***************************************************************//
 
     logic [63:0] ReadData1;
@@ -110,9 +115,9 @@ module cpu(input logic clk, reset);
     ); 
 
 //***************************************************************//
-// ALU circuit
+// Execute stage: ALU and PC register calculations
 //***************************************************************//
-
+    // ALU circuit
     logic [63:0] alu_A;
     logic [63:0] alu_B;
     logic [63:0] alu_imm_out;
@@ -156,15 +161,8 @@ module cpu(input logic clk, reset);
     D_FF_en dff_overflow (.q(overflow_r), .d(overflow_n), .reset(reset), .clk(clk), .en_i(set_flags));
     D_FF_en dff_carry_out (.q(carry_out_r), .d(carry_out_n), .reset(reset), .clk(clk), .en_i(set_flags));
 
-//***************************************************************//
-// PC circuit
-//***************************************************************//
 
-    // Standard PC + 4
-    logic [63:0] pc_add_4;
-    pc_adder pc_p4_adder(.pc_r(pc_r),
-                    .pc_n(pc_add_4));
-
+    // PC calculations 
     // Standard branch, branch link
     logic [63:0] pc_add_imm_26;
     branch_adder pc_imm_26_adder (.pc_r(pc_r),
@@ -213,18 +211,34 @@ module cpu(input logic clk, reset);
     );
 
 //***************************************************************//
-// Data memory circuit
+// MEM stage
 //***************************************************************//
 
     logic [63:0] mem_addr;
     logic [63:0] stur_data;
     logic [3:0] xfer_size;
     logic [63:0] ldur_data;
-    logic [63:0] writeback_non_mem;
 
     assign mem_addr = alu_result;
     assign stur_data = ReadData2;
     assign xfer_size = 4'd8;
+
+    datamem data_memory(
+        .address(mem_addr),
+        .write_enable(stur_en),
+        .read_enable(ldur_en),
+        .write_data(stur_data),
+        .clk(clk),
+        .xfer_size(xfer_size), 
+        .read_data(ldur_data)
+	);
+
+//***************************************************************//
+// WB stage
+//***************************************************************//
+
+    logic [63:0] writeback_non_mem;
+
     mux2_1x64 writeback_link_mux (
         .z_o(writeback_non_mem),
         .a_i(alu_result),
@@ -239,17 +253,7 @@ module cpu(input logic clk, reset);
         .sel_i(ldur_en)
     );
 
-    datamem data_memory(
-        .address(mem_addr),
-        .write_enable(stur_en),
-        .read_enable(ldur_en),
-        .write_data(stur_data),
-        .clk(clk),
-        .xfer_size(xfer_size), 
-        .read_data(ldur_data)
-	);
-
-    // PC register
+    // IF stage: PC state register
     D_FF_64 pc_ff (
         .d(pc_n),
         .reset(reset),
