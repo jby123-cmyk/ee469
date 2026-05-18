@@ -249,12 +249,12 @@ module cpu(input logic clk, reset);
         .read_data(ldur_data)
 	);
 
-    // PC update
-    always_ff @(posedge clk) begin
-        if (reset) begin
-            pc_r <= 64'h0;
-        end else begin
-            pc_r <= pc_n;
-        end
-    end
+    // PC register
+    D_FF_64 pc_ff (
+        .d(pc_n),
+        .reset(reset),
+        .en_i(1'b1),
+        .clk(clk),
+        .q(pc_r)
+    );
 endmodule 
