@@ -26,6 +26,7 @@ module D_FF_param (#parameter length = 1)
 				  ,input logic reset
 				  ,input logic clk
 				  ,output logic [length-1:0] q
+				  );
 	genvar i;
 	generate 
 		for (i = 0; i < length; i++) begin : gen_dffs

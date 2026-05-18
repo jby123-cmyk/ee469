@@ -40,6 +40,18 @@ module cpu(input logic clk, reset);
     logic [25:0] imm_19;
     assign imm_19 = {{7{instruction[23]}}, instruction[23:5]};
 
+    logic [127:0] pipeline_if_id_r, pipeline_if_id_n;
+
+    assign pipeline_if_id_n = {pc_r, instruction};
+
+    D_FF_param #(128) pipeline_if_id_dff 
+                (.q(pipeline_if_id_r), 
+                 .d(pipeline_if_id_n), 
+                 .reset(reset), 
+                 .clk(clk));
+//***************************************************************//
+// Instruction decode and register read
+//***************************************************************//
 
     logic [2:0] alu_cntrl;
     logic reg_write_en;
@@ -70,10 +82,6 @@ module cpu(input logic clk, reset);
               ,.reg2loc(reg2loc)
               ,.addi_en(addi_en));
 
-
-//***************************************************************//
-// Instruction decode and register read
-//***************************************************************//
 
     logic [63:0] ReadData1;
     logic [63:0] ReadData2;
@@ -113,6 +121,18 @@ module cpu(input logic clk, reset);
         .RegWrite(reg_write_en),
         .clk(clk)
     ); 
+
+    logic [127:0] pipeline_id_ex_r, pipeline_id_ex_n;
+
+    logic []
+
+    assign pipeline_id_ex_n = {pc_r, instruction};
+
+    D_FF_param #(128) pipeline_if_id_dff 
+                (.q(pipeline_if_id_r), 
+                 .d(pipeline_if_id_n), 
+                 .reset(reset), 
+                 .clk(clk));
 
 //***************************************************************//
 // Execute stage: ALU and PC register calculations
