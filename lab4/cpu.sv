@@ -122,8 +122,8 @@ module cpu(input logic clk, reset);
     logic [4:0] ReadRegister1;
     logic [4:0] ReadRegister2;
     logic [4:0] WriteRegister_n;
-    logic [4:0] WriteRegister_w;
     logic [4:0] read_register2_x5;
+    logic [4:0] WriteRegister_w;
     logic reg_write_en_w;
 
     assign ReadRegister1 = rn;
@@ -214,12 +214,14 @@ module cpu(input logic clk, reset);
     assign set_flags_r = ex_ctl_r[0];
     assign branch_link_sel_r = wb_ctl_r[1];
 
+    logic [272:0] pipeline_ex_mem_r, pipeline_ex_mem_n;
+
     // forwarding unit
-    logic [4:0] WriteRegister_mem_fwd;
+    logic [4:0] WriteRegister_m;
     logic [63:0] alu_result_mem_fwd;
     logic reg_write_en_mem_fwd;
     
-    assign WriteRegister_mem_fwd = pipeline_ex_mem_r[68:64];
+    assign WriteRegister_m = pipeline_ex_mem_r[68:64];
     assign alu_result_mem_fwd = pipeline_ex_mem_r[196:133];
     assign reg_write_en_mem_fwd = pipeline_ex_mem_r[272];
 
@@ -229,7 +231,7 @@ module cpu(input logic clk, reset);
     forwarding_unit fwd_unit (
         .ReadRegister1(rn_r),
         .ReadRegister2(rm_r),
-        .WriteRegister_m(WriteRegister_mem_fwd),
+        .WriteRegister_m(WriteRegister_m),
         .reg_write_en_m(reg_write_en_mem_fwd),
         .WriteRegister_w(WriteRegister_w),
         .reg_write_en_w(reg_write_en_w),
@@ -301,8 +303,7 @@ module cpu(input logic clk, reset);
                                 .imm(branch_imm_shifted),
                                 .pc_n(pc_add_imm_n));
 
-    logic [272:0] pipeline_ex_mem_r, pipeline_ex_mem_n;
-    assign pipeline_ex_mem_n = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, pc_add_imm_n, zero_n, negative_r, overflow_r, alu_result_n, ReadData2_r, WriteRegister_r, pc_add_4_ex};
+    assign pipeline_ex_mem_n = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, ReadData2_r, WriteRegister_r, pc_add_4_ex};
 
     D_FF_param #(273) pipeline_ex_mem_dff 
                 (.q(pipeline_ex_mem_r), 
@@ -326,13 +327,12 @@ module cpu(input logic clk, reset);
     logic overflow_eval_m;
     logic [63:0] alu_result_m;
     logic [63:0] ReadData2_m;
-    logic [4:0] WriteRegister_m;
     logic [63:0] pc_add_4_m;
     logic ldur_en_m, stur_en_m;
     logic branch_link_sel_m;
     logic branch_taken_m;
     logic [63:0] pc_non_reg_m;
-
+    
     assign wb_ctl_m = pipeline_ex_mem_r[272:270];
     assign mem_ctl_m = pipeline_ex_mem_r[269:268];
     assign branch_uncond_m = pipeline_ex_mem_r[267];
@@ -345,7 +345,7 @@ module cpu(input logic clk, reset);
     assign overflow_eval_m = pipeline_ex_mem_r[197];
     assign alu_result_m = pipeline_ex_mem_r[196:133];
     assign ReadData2_m = pipeline_ex_mem_r[132:69];
-    assign WriteRegister_m = pipeline_ex_mem_r[68:64];
+    //assign WriteRegister_m = pipeline_ex_mem_r[68:64];
     assign pc_add_4_m = pipeline_ex_mem_r[63:0];
 
     assign ldur_en_m = mem_ctl_m[1];
@@ -402,9 +402,9 @@ module cpu(input logic clk, reset);
     logic [63:0] alu_result_w;
     logic [63:0] ldur_data_w;
     logic [63:0] pc_add_4_w;
-    logic [63:0] writeback_non_mem;
     logic branch_link_sel_w;
     logic ldur_en_w;
+    logic [63:0] writeback_non_mem;
 
     assign wb_ctl_w = pipeline_mem_wb_r[199:197];
     assign alu_result_w = pipeline_mem_wb_r[196:133];
@@ -439,5 +439,4 @@ module cpu(input logic clk, reset);
         .q(pc_r)
     );
 
-image.png
 endmodule 

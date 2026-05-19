@@ -21,7 +21,7 @@ module D_FF_en (output logic q,
 	D_FF dff_en (.q(q), .d(mux_out), .reset(reset), .clk(clk));
 endmodule 
 
-module D_FF_param (#parameter length = 1) 
+module D_FF_param #(parameter length = 1) 
 				  (input logic [length-1:0] d
 				  ,input logic reset
 				  ,input logic clk
