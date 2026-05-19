@@ -173,37 +173,20 @@ module cpu(input logic clk, reset);
     logic branch_is_imm_id;
     logic branch_cond_zero_id;
     logic branch_cond_lt_id;
+    logic branch_lt_cond_id;
     logic id_is_branch;
-    logic branch_uses_rm_id;
-    logic branch_uses_flags_id;
     logic [63:0] branch_imm_shifted_id;
+    logic [63:0] ReadData2_branch;
+    logic [63:0] ReadData2_mem_fwd;
+    logic fwd_branch_ex_id, fwd_branch_mem_id, fwd_branch_wb_id;
 
     assign id_is_branch = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n | branch_reg_sel_n;
     assign branch_is_imm_id = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n;
-    assign branch_uses_rm_id = branch_zero_n | branch_reg_sel_n;
-    assign branch_uses_flags_id = branch_lt_n;
-    assign branch_cond_zero_id = branch_zero_n & (ReadData2_n == 64'b0);
-    assign branch_cond_lt_id = branch_lt_n & (negative_r ^ overflow_r);
-    assign branch_taken_id = branch_uncond_n | branch_link_sel_n | branch_cond_zero_id | branch_cond_lt_id | branch_reg_sel_n;
 
     assign branch_imm_shifted_id = {branch_imm[61:0], 2'b00};
     branch_adder id_branch_adder(.pc_r(pipeline_if_id_r[95:32]),
                                  .imm(branch_imm_shifted_id),
                                  .pc_n(pc_add_imm_id));
-
-    mux2_1x64 pc_branch_id_mux (
-        .z_o(pc_non_reg_id),
-        .a_i(pc_add_4),
-        .b_i(pc_add_imm_id),
-        .sel_i(branch_taken_id & branch_is_imm_id)
-    );
-
-    mux2_1x64 pc_n_id_mux (
-        .z_o(pc_n),
-        .a_i(pc_non_reg_id),
-        .b_i(ReadData2_n),
-        .sel_i(branch_taken_id & branch_reg_sel_n)
-    );
 
     logic [284:0] pipeline_id_ex_r, pipeline_id_ex_n, pipeline_id_ex_n_raw;
     logic [2:0] wb_ctl_n;
@@ -400,26 +383,6 @@ module cpu(input logic clk, reset);
     assign stur_en_m = mem_ctl_m[0];
     assign branch_link_sel_m = wb_ctl_m[1];
 
-    hazard_detection_unit hzd_unit (
-        .id_ex_memread(mem_ctl_r[1]),
-        .id_ex_regwrite(wb_ctl_r[2]),
-        .ex_mem_regwrite(wb_ctl_m[2]),
-        .id_ex_setflags(set_flags_r),
-        .id_ex_rd(WriteRegister_r),
-        .ex_mem_rd(WriteRegister_m),
-        .if_id_rn(ReadRegister1),
-        .if_id_rm(ReadRegister2),
-        .id_is_branch(id_is_branch),
-        .branch_uses_rm(branch_uses_rm_id),
-        .branch_uses_flags(branch_uses_flags_id),
-        .branch_taken(branch_taken_id),
-        .pc_write_en(pc_write_en_hzd),
-        .if_id_write_en(if_id_write_en_hzd),
-        .if_id_flush(if_id_flush_hzd),
-        .id_ex_flush(id_ex_flush_hzd),
-        .ex_mem_flush(ex_mem_flush_hzd)
-    );
-
     logic [63:0] mem_addr;
     logic [3:0] xfer_size;
     logic [63:0] ldur_data_m;
@@ -428,7 +391,6 @@ module cpu(input logic clk, reset);
     assign mem_addr = alu_result_m;
     assign xfer_size = 4'd8;
 
-    // mem stage forwarding mux 
     mux2_1x64 store_data_fwd_mux (
         .z_o(store_data_m),
         .a_i(ReadData2_m),
@@ -488,6 +450,62 @@ module cpu(input logic clk, reset);
         .a_i(writeback_non_mem),
         .b_i(ldur_data_w),
         .sel_i(ldur_en_w)
+    );
+
+    // ID-stage branch resolution (forward from EX/MEM/WB before updating PC)
+    assign fwd_branch_ex_id = wb_ctl_r[2] & ~mem_ctl_r[1] & (WriteRegister_r == ReadRegister2) & (WriteRegister_r != 5'b11111);
+    assign fwd_branch_mem_id = reg_write_en_mem_fwd & (WriteRegister_m == ReadRegister2) & (WriteRegister_m != 5'b11111);
+    assign fwd_branch_wb_id = reg_write_en_w & (WriteRegister_w == ReadRegister2) & (WriteRegister_w != 5'b11111);
+    assign ReadData2_mem_fwd = ldur_en_m ? ldur_data_m : alu_result_m;
+
+    always_comb begin
+        if (fwd_branch_ex_id)
+            ReadData2_branch = alu_result_n;
+        else if (fwd_branch_mem_id)
+            ReadData2_branch = ReadData2_mem_fwd;
+        else if (fwd_branch_wb_id)
+            ReadData2_branch = WriteData_w;
+        else
+            ReadData2_branch = ReadData2_n;
+    end
+
+    assign branch_lt_cond_id = set_flags_r ? (negative_n ^ overflow_n) : (negative_r ^ overflow_r);
+    assign branch_cond_zero_id = branch_zero_n & (ReadData2_branch == 64'b0);
+    assign branch_cond_lt_id = branch_lt_n & branch_lt_cond_id;
+    assign branch_taken_id = branch_uncond_n | branch_link_sel_n | branch_cond_zero_id | branch_cond_lt_id | branch_reg_sel_n;
+
+    mux2_1x64 pc_branch_id_mux (
+        .z_o(pc_non_reg_id),
+        .a_i(pc_add_4),
+        .b_i(pc_add_imm_id),
+        .sel_i(branch_taken_id & branch_is_imm_id)
+    );
+
+    mux2_1x64 pc_n_id_mux (
+        .z_o(pc_n),
+        .a_i(pc_non_reg_id),
+        .b_i(ReadData2_branch),
+        .sel_i(branch_taken_id & branch_reg_sel_n)
+    );
+
+    hazard_detection_unit hzd_unit (
+        .id_ex_memread(mem_ctl_r[1]),
+        .id_ex_rd(WriteRegister_r),
+        .mem_ldur_en(ldur_en_m),
+        .mem_rd(WriteRegister_m),
+        .ex_rn(rn_r),
+        .ex_rm(rm_r),
+        .ex_regwrite(wb_ctl_r[2]),
+        .if_id_rn(ReadRegister1),
+        .if_id_rm(ReadRegister2),
+        .reg_write_en_w(reg_write_en_w),
+        .write_register_w(WriteRegister_w),
+        .branch_taken(branch_taken_id),
+        .pc_write_en(pc_write_en_hzd),
+        .if_id_write_en(if_id_write_en_hzd),
+        .if_id_flush(if_id_flush_hzd),
+        .id_ex_flush(id_ex_flush_hzd),
+        .ex_mem_flush(ex_mem_flush_hzd)
     );
 
     // IF stage: PC state register
