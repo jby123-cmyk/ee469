@@ -124,3 +124,32 @@ module mux32_1x64(output logic [63:0] z_o
 		end
 	endgenerate
 endmodule 
+
+module mux3_1(output logic z_o
+             ,input logic a_i, b_i, c_i
+			 ,input logic [1:0] sel_i);
+	
+	logic mid;
+	
+	mux2_1 first (.z_o(mid)
+	             ,.a_i(a_i)
+	             ,.b_i(b_i)
+	             ,.sel_i(sel_i[0]));
+	mux2_1 second (.z_o(z_o)
+	              ,.a_i(mid)
+	              ,.b_i(c_i)
+	              ,.sel_i(sel_i[1]));
+endmodule
+
+module mux3_1x64(output logic [63:0] z_o
+				,input logic [63:0] a_i
+				,input logic [63:0] b_i
+				,input logic [63:0] c_i
+				,input logic [1:0] sel_i);
+	genvar i;
+	generate 
+		for (i = 0; i < 64; i++) begin : gen_muxes
+			mux3_1 m (.z_o(z_o[i]), .a_i(a_i[i]), .b_i(b_i[i]), .c_i(c_i[i]), .sel_i(sel_i));
+		end
+	endgenerate
+endmodule 

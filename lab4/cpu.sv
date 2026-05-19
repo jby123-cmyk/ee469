@@ -155,7 +155,7 @@ module cpu(input logic clk, reset);
         .clk(clk)
     ); 
 
-    logic [274:0] pipeline_id_ex_r, pipeline_id_ex_n;
+    logic [284:0] pipeline_id_ex_r, pipeline_id_ex_n;
     logic [2:0] wb_ctl_n;
     logic [1:0] mem_ctl_n;
     logic [8:0] ex_ctl_n;
@@ -164,9 +164,9 @@ module cpu(input logic clk, reset);
     assign mem_ctl_n = {ldur_en_n, stur_en_n};
     assign ex_ctl_n = {alu_cntrl_n, alu_src_n, branch_uncond_n, branch_zero_n, branch_lt_n, branch_reg_sel_n, set_flags_n};
 
-    assign pipeline_id_ex_n = {wb_ctl_n, mem_ctl_n, ex_ctl_n, pipeline_if_id_r[95:32], ReadData1_n, ReadData2_n, imm_value_n, WriteRegister_n};
+    assign pipeline_id_ex_n = {wb_ctl_n, mem_ctl_n, ex_ctl_n, pipeline_if_id_r[95:32], ReadData1_n, ReadData2_n, imm_value_n, WriteRegister_n, rn, rm};
 
-    D_FF_param #(275) pipeline_id_ex_dff 
+    D_FF_param #(285) pipeline_id_ex_dff 
                 (.q(pipeline_id_ex_r), 
                  .d(pipeline_id_ex_n), 
                  .reset(reset), 
@@ -183,15 +183,18 @@ module cpu(input logic clk, reset);
     logic [63:0] ReadData2_r;
     logic [63:0] imm_value_r;
     logic [4:0] WriteRegister_r;
+    logic [4:0] rn_r, rm_r;
 
-    assign wb_ctl_r = pipeline_id_ex_r[274:272];
-    assign mem_ctl_r = pipeline_id_ex_r[271:270];
-    assign ex_ctl_r = pipeline_id_ex_r[269:261];
-    assign pc_r_ex = pipeline_id_ex_r[260:197];
-    assign ReadData1_r = pipeline_id_ex_r[196:133];
-    assign ReadData2_r = pipeline_id_ex_r[132:69];
-    assign imm_value_r = pipeline_id_ex_r[68:5];
-    assign WriteRegister_r = pipeline_id_ex_r[4:0];
+    assign wb_ctl_r = pipeline_id_ex_r[284:282];
+    assign mem_ctl_r = pipeline_id_ex_r[281:280];
+    assign ex_ctl_r = pipeline_id_ex_r[279:271];
+    assign pc_r_ex = pipeline_id_ex_r[270:207];
+    assign ReadData1_r = pipeline_id_ex_r[206:143];
+    assign ReadData2_r = pipeline_id_ex_r[142:79];
+    assign imm_value_r = pipeline_id_ex_r[78:15];
+    assign WriteRegister_r = pipeline_id_ex_r[14:10];
+    assign rn_r = pipeline_id_ex_r[9:5];
+    assign rm_r = pipeline_id_ex_r[4:0];
 
     logic [2:0] alu_cntrl_r;
     logic alu_src_r;
@@ -211,6 +214,44 @@ module cpu(input logic clk, reset);
     assign set_flags_r = ex_ctl_r[0];
     assign branch_link_sel_r = wb_ctl_r[1];
 
+    // Extract data from EX/MEM pipeline for forwarding unit
+    logic [4:0] WriteRegister_mem_fwd;
+    logic [63:0] alu_result_mem_fwd;
+    logic reg_write_en_mem_fwd;
+    
+    assign WriteRegister_mem_fwd = pipeline_ex_mem_r[68:64];
+    assign alu_result_mem_fwd = pipeline_ex_mem_r[196:133];
+    assign reg_write_en_mem_fwd = pipeline_ex_mem_r[272];
+
+    // Forwarding unit and multiplexers
+    logic [1:0] forward_alu_A, forward_alu_B;
+    logic [63:0] alu_A_forwarded, alu_B_forwarded;
+
+    forwarding_unit fwd_unit (
+        .ReadRegister1(rn_r),
+        .ReadRegister2(rm_r),
+        .WriteRegister_m(WriteRegister_mem_fwd),
+        .reg_write_en_m(reg_write_en_mem_fwd),
+        .forward_alu_A(forward_alu_A),
+        .forward_alu_B(forward_alu_B)
+    );
+
+    mux3_1x64 alu_a_fwd_mux (
+        .z_o(alu_A_forwarded),
+        .a_i(ReadData1_r),
+        .b_i(alu_result_mem_fwd),
+        .c_i(64'h0),
+        .sel_i(forward_alu_A)
+    );
+
+    mux3_1x64 alu_b_fwd_mux (
+        .z_o(alu_B_forwarded),
+        .a_i(ReadData2_r),
+        .b_i(alu_result_mem_fwd),
+        .c_i(64'h0),
+        .sel_i(forward_alu_B)
+    );
+
     // ALU circuit
     logic [63:0] alu_A;
     logic [63:0] alu_B;
@@ -220,11 +261,11 @@ module cpu(input logic clk, reset);
     logic overflow_r, overflow_n;
     logic carry_out_r, carry_out_n;
 
-    assign alu_A = ReadData1_r;
+    assign alu_A = alu_A_forwarded;
 
     mux2_1x64 alu_b_mux (
         .z_o(alu_B),
-        .a_i(ReadData2_r),
+        .a_i(alu_B_forwarded),
         .b_i(imm_value_r),
         .sel_i(alu_src_r)
     );
@@ -396,4 +437,6 @@ module cpu(input logic clk, reset);
         .clk(clk),
         .q(pc_r)
     );
+
+
 endmodule 
