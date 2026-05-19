@@ -214,7 +214,7 @@ module cpu(input logic clk, reset);
     assign set_flags_r = ex_ctl_r[0];
     assign branch_link_sel_r = wb_ctl_r[1];
 
-    // Extract data from EX/MEM pipeline for forwarding unit
+    // forwarding unit
     logic [4:0] WriteRegister_mem_fwd;
     logic [63:0] alu_result_mem_fwd;
     logic reg_write_en_mem_fwd;
@@ -223,7 +223,6 @@ module cpu(input logic clk, reset);
     assign alu_result_mem_fwd = pipeline_ex_mem_r[196:133];
     assign reg_write_en_mem_fwd = pipeline_ex_mem_r[272];
 
-    // Forwarding unit and multiplexers
     logic [1:0] forward_alu_A, forward_alu_B;
     logic [63:0] alu_A_forwarded, alu_B_forwarded;
 
@@ -232,6 +231,8 @@ module cpu(input logic clk, reset);
         .ReadRegister2(rm_r),
         .WriteRegister_m(WriteRegister_mem_fwd),
         .reg_write_en_m(reg_write_en_mem_fwd),
+        .WriteRegister_w(WriteRegister_w),
+        .reg_write_en_w(reg_write_en_w),
         .forward_alu_A(forward_alu_A),
         .forward_alu_B(forward_alu_B)
     );
@@ -239,16 +240,16 @@ module cpu(input logic clk, reset);
     mux3_1x64 alu_a_fwd_mux (
         .z_o(alu_A_forwarded),
         .a_i(ReadData1_r),
-        .b_i(alu_result_mem_fwd),
-        .c_i(64'h0),
+        .b_i(WriteData_w),
+        .c_i(alu_result_mem_fwd),
         .sel_i(forward_alu_A)
     );
 
     mux3_1x64 alu_b_fwd_mux (
         .z_o(alu_B_forwarded),
         .a_i(ReadData2_r),
-        .b_i(alu_result_mem_fwd),
-        .c_i(64'h0),
+        .b_i(WriteData_w),
+        .c_i(alu_result_mem_fwd),
         .sel_i(forward_alu_B)
     );
 
@@ -438,5 +439,5 @@ module cpu(input logic clk, reset);
         .q(pc_r)
     );
 
-
+image.png
 endmodule 
