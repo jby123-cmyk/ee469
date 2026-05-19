@@ -173,9 +173,15 @@ module cpu(input logic clk, reset);
     logic branch_is_imm_id;
     logic branch_cond_zero_id;
     logic branch_cond_lt_id;
+    logic id_is_branch;
+    logic branch_uses_rm_id;
+    logic branch_uses_flags_id;
     logic [63:0] branch_imm_shifted_id;
 
+    assign id_is_branch = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n | branch_reg_sel_n;
     assign branch_is_imm_id = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n;
+    assign branch_uses_rm_id = branch_zero_n | branch_reg_sel_n;
+    assign branch_uses_flags_id = branch_lt_n;
     assign branch_cond_zero_id = branch_zero_n & (ReadData2_n == 64'b0);
     assign branch_cond_lt_id = branch_lt_n & (negative_r ^ overflow_r);
     assign branch_taken_id = branch_uncond_n | branch_link_sel_n | branch_cond_zero_id | branch_cond_lt_id | branch_reg_sel_n;
@@ -397,9 +403,16 @@ module cpu(input logic clk, reset);
 
     hazard_detection_unit hzd_unit (
         .id_ex_memread(mem_ctl_r[1]),
+        .id_ex_regwrite(wb_ctl_r[2]),
+        .ex_mem_regwrite(wb_ctl_m[2]),
+        .id_ex_setflags(set_flags_r),
         .id_ex_rd(WriteRegister_r),
+        .ex_mem_rd(WriteRegister_m),
         .if_id_rn(ReadRegister1),
         .if_id_rm(ReadRegister2),
+        .id_is_branch(id_is_branch),
+        .branch_uses_rm(branch_uses_rm_id),
+        .branch_uses_flags(branch_uses_flags_id),
         .branch_taken(branch_taken_id),
         .pc_write_en(pc_write_en_hzd),
         .if_id_write_en(if_id_write_en_hzd),
