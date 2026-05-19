@@ -2,9 +2,16 @@
 
 module hazard_detection_unit(
     input  logic       id_ex_memread,
+    input  logic       id_ex_regwrite,
+    input  logic       ex_mem_regwrite,
+    input  logic       id_ex_setflags,
     input  logic [4:0] id_ex_rd,
+    input  logic [4:0] ex_mem_rd,
     input  logic [4:0] if_id_rn,
     input  logic [4:0] if_id_rm,
+    input  logic       id_is_branch,
+    input  logic       branch_uses_rm,
+    input  logic       branch_uses_flags,
     input  logic       branch_taken,
 
     output logic pc_write_en,
@@ -16,28 +23,56 @@ module hazard_detection_unit(
 
     // load-use hazard detect:
     // id_ex_memread & (id_ex_rd != 31) & ((id_ex_rd == if_id_rn) | (id_ex_rd == if_id_rm))
-
-    logic eq_rd_rn, eq_rd_rm;
-    logic rd_dep_match;
+    logic eq_id_ex_rd_rn, eq_id_ex_rd_rm;
     logic rd_not_x31;
     logic load_use_hazard;
-    logic not_load_use_hazard;
 
-    check_equal_5 eq_rd_rn_cmp (.z_o(eq_rd_rn), .a_i(id_ex_rd), .b_i(if_id_rn));
-    check_equal_5 eq_rd_rm_cmp (.z_o(eq_rd_rm), .a_i(id_ex_rd), .b_i(if_id_rm));
+    // branch operand and flag hazards in ID stage
+    logic eq_id_ex_rd_branch_rm, eq_ex_mem_rd_branch_rm;
+    logic ex_mem_rd_not_x31;
+    logic branch_src_hazard_id_ex;
+    logic branch_src_hazard_ex_mem;
+    logic branch_operand_hazard;
+    logic branch_flag_hazard;
+    logic stall_hazard;
+
+    check_equal_5 eq_id_ex_rd_rn_cmp (.z_o(eq_id_ex_rd_rn), .a_i(id_ex_rd), .b_i(if_id_rn));
+    check_equal_5 eq_id_ex_rd_rm_cmp (.z_o(eq_id_ex_rd_rm), .a_i(id_ex_rd), .b_i(if_id_rm));
     check_not_equal_5 rd_not_x31_cmp (.z_o(rd_not_x31), .a_i(id_ex_rd), .b_i(5'b11111));
+    check_equal_5 eq_id_ex_rd_branch_rm_cmp (.z_o(eq_id_ex_rd_branch_rm), .a_i(id_ex_rd), .b_i(if_id_rm));
 
-    or  #0.050 rd_dep_match_g (rd_dep_match, eq_rd_rn, eq_rd_rm);
-    and #0.050 load_use_hazard_g (load_use_hazard, id_ex_memread, rd_not_x31, rd_dep_match);
+    check_equal_5 eq_ex_mem_rd_branch_rm_cmp (.z_o(eq_ex_mem_rd_branch_rm), .a_i(ex_mem_rd), .b_i(if_id_rm));
+    check_not_equal_5 ex_mem_rd_not_x31_cmp (.z_o(ex_mem_rd_not_x31), .a_i(ex_mem_rd), .b_i(5'b11111));
 
-    not #0.050 not_load_use_hazard_g (not_load_use_hazard, load_use_hazard);
+    assign load_use_hazard = id_ex_memread
+                           & rd_not_x31
+                           & (eq_id_ex_rd_rn | eq_id_ex_rd_rm);
 
-    // load_use_hazard stalls PC/IF_ID and flushes ID/EX
-    // branch flushes IF/ID only when no load-use hazard
-    or  #0.050 pc_write_en_g (pc_write_en, not_load_use_hazard, 1'b0);
-    or  #0.050 if_id_write_en_g (if_id_write_en, not_load_use_hazard, 1'b0);
-    or  #0.050 id_ex_flush_g (id_ex_flush, load_use_hazard, 1'b0);
-    and #0.050 if_id_flush_g (if_id_flush, branch_taken, not_load_use_hazard);
-    and #0.050 ex_mem_flush_g (ex_mem_flush, 1'b0, 1'b0);
+    assign branch_src_hazard_id_ex = id_is_branch
+                                   & branch_uses_rm
+                                   & id_ex_regwrite
+                                   & rd_not_x31
+                                   & eq_id_ex_rd_branch_rm;
+
+    assign branch_src_hazard_ex_mem = id_is_branch
+                                    & branch_uses_rm
+                                    & ex_mem_regwrite
+                                    & ex_mem_rd_not_x31
+                                    & eq_ex_mem_rd_branch_rm;
+
+    assign branch_operand_hazard = branch_src_hazard_id_ex | branch_src_hazard_ex_mem;
+    assign branch_flag_hazard = id_is_branch & branch_uses_flags & id_ex_setflags;
+    assign stall_hazard = load_use_hazard | branch_operand_hazard | branch_flag_hazard;
+
+    // any hazard stalls PC/IF_ID and injects bubble in ID/EX
+    assign pc_write_en = ~stall_hazard;
+    assign if_id_write_en = ~stall_hazard;
+    assign id_ex_flush = stall_hazard;
+
+    // taken branch in ID flushes younger IF instruction when not stalled
+    assign if_id_flush = branch_taken & ~stall_hazard;
+
+    // retained for interface compatibility
+    assign ex_mem_flush = 1'b0;
 
 endmodule
