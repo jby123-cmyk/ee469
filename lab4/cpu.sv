@@ -1,9 +1,9 @@
 `timescale 1ns/10ps
 
 module cpu(input logic clk, reset);
-//***************************************************************//
+
 // Instruction fetch stage 
-//***************************************************************//
+
     logic [31:0] instruction;
     logic [63:0] pc_r;
     logic [63:0] pc_n;
@@ -43,9 +43,8 @@ module cpu(input logic clk, reset);
                  .d(pipeline_if_id_n), 
                  .reset(reset), 
                  .clk(clk));
-//***************************************************************//
+
 // Instruction decode and register read
-//***************************************************************//
 
     // instruction decode + control
     logic [31:0] instruction_r;
@@ -179,6 +178,14 @@ module cpu(input logic clk, reset);
     logic [63:0] ReadData2_branch;
     logic [63:0] ReadData2_mem_fwd;
     logic fwd_branch_ex_id, fwd_branch_mem_id, fwd_branch_wb_id;
+    logic eq_wr_r_rm2, wr_r_not_x31, not_mem_ldur_ex, ex_branch_write_valid;
+    logic eq_wr_m_rm2, wr_m_not_x31, mem_branch_write_valid;
+    logic eq_wr_w_rm2, wr_w_not_x31, wb_branch_write_valid;
+    logic fwd_branch_wb_pre, not_fwd_branch_ex, not_fwd_branch_mem;
+    logic [1:0] fwd_branch_sel;
+    logic [63:0] ReadData2_branch_pre;
+    logic branch_lt_neg_ovf_n, branch_lt_neg_ovf_r;
+    logic rd2_branch_is_zero;
 
     assign id_is_branch = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n | branch_reg_sel_n;
     assign branch_is_imm_id = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n;
@@ -206,9 +213,7 @@ module cpu(input logic clk, reset);
                  .reset(reset), 
                  .clk(clk));
 
-//***************************************************************//
-// Execute stage: ALU and PC register calculations
-//***************************************************************//
+// Execute stage
     logic [2:0] wb_ctl_r;
     logic [1:0] mem_ctl_r;
     logic [8:0] ex_ctl_r;
@@ -345,9 +350,8 @@ module cpu(input logic clk, reset);
                  .reset(reset), 
                  .clk(clk));
 
-//***************************************************************//
+
 // MEM stage
-//***************************************************************//
 
     logic [2:0] wb_ctl_m;
     logic [1:0] mem_ctl_m;
@@ -416,9 +420,9 @@ module cpu(input logic clk, reset);
                  .d(pipeline_mem_wb_n), 
                  .reset(reset), 
                  .clk(clk));
-//***************************************************************//
+
 // WB stage
-//***************************************************************//
+
 
     logic [2:0] wb_ctl_w;
     logic [63:0] alu_result_w;
@@ -453,26 +457,67 @@ module cpu(input logic clk, reset);
     );
 
     // ID-stage branch resolution (forward from EX/MEM/WB before updating PC)
-    assign fwd_branch_ex_id = wb_ctl_r[2] & ~mem_ctl_r[1] & (WriteRegister_r == ReadRegister2) & (WriteRegister_r != 5'b11111);
-    assign fwd_branch_mem_id = reg_write_en_mem_fwd & (WriteRegister_m == ReadRegister2) & (WriteRegister_m != 5'b11111);
-    assign fwd_branch_wb_id = reg_write_en_w & (WriteRegister_w == ReadRegister2) & (WriteRegister_w != 5'b11111);
-    assign ReadData2_mem_fwd = ldur_en_m ? ldur_data_m : alu_result_m;
+    check_equal_5 eq_wr_r_rm2_cmp (.z_o(eq_wr_r_rm2), .a_i(WriteRegister_r), .b_i(ReadRegister2));
+    check_not_equal_5 wr_r_not_x31_cmp (.z_o(wr_r_not_x31), .a_i(WriteRegister_r), .b_i(5'b11111));
+    not #0.050 not_mem_ldur_ex_g (not_mem_ldur_ex, mem_ctl_r[1]);
+    and #0.050 ex_branch_write_valid_g (ex_branch_write_valid, wb_ctl_r[2], not_mem_ldur_ex, wr_r_not_x31);
+    and #0.050 fwd_branch_ex_id_g (fwd_branch_ex_id, ex_branch_write_valid, eq_wr_r_rm2);
 
-    always_comb begin
-        if (fwd_branch_ex_id)
-            ReadData2_branch = alu_result_n;
-        else if (fwd_branch_mem_id)
-            ReadData2_branch = ReadData2_mem_fwd;
-        else if (fwd_branch_wb_id)
-            ReadData2_branch = WriteData_w;
-        else
-            ReadData2_branch = ReadData2_n;
-    end
+    check_equal_5 eq_wr_m_rm2_cmp (.z_o(eq_wr_m_rm2), .a_i(WriteRegister_m), .b_i(ReadRegister2));
+    check_not_equal_5 wr_m_not_x31_cmp (.z_o(wr_m_not_x31), .a_i(WriteRegister_m), .b_i(5'b11111));
+    and #0.050 mem_branch_write_valid_g (mem_branch_write_valid, reg_write_en_mem_fwd, wr_m_not_x31);
+    and #0.050 fwd_branch_mem_id_g (fwd_branch_mem_id, mem_branch_write_valid, eq_wr_m_rm2);
 
-    assign branch_lt_cond_id = set_flags_r ? (negative_n ^ overflow_n) : (negative_r ^ overflow_r);
-    assign branch_cond_zero_id = branch_zero_n & (ReadData2_branch == 64'b0);
-    assign branch_cond_lt_id = branch_lt_n & branch_lt_cond_id;
-    assign branch_taken_id = branch_uncond_n | branch_link_sel_n | branch_cond_zero_id | branch_cond_lt_id | branch_reg_sel_n;
+    check_equal_5 eq_wr_w_rm2_cmp (.z_o(eq_wr_w_rm2), .a_i(WriteRegister_w), .b_i(ReadRegister2));
+    check_not_equal_5 wr_w_not_x31_cmp (.z_o(wr_w_not_x31), .a_i(WriteRegister_w), .b_i(5'b11111));
+    and #0.050 wb_branch_write_valid_g (wb_branch_write_valid, reg_write_en_w, wr_w_not_x31);
+    and #0.050 fwd_branch_wb_pre_g (fwd_branch_wb_pre, wb_branch_write_valid, eq_wr_w_rm2);
+    not #0.050 not_fwd_branch_ex_g (not_fwd_branch_ex, fwd_branch_ex_id);
+    not #0.050 not_fwd_branch_mem_g (not_fwd_branch_mem, fwd_branch_mem_id);
+    and #0.050 fwd_branch_wb_id_g (fwd_branch_wb_id, fwd_branch_wb_pre, not_fwd_branch_ex, not_fwd_branch_mem);
+
+    mux2_1x64 read_data2_mem_fwd_mux (
+        .z_o(ReadData2_mem_fwd),
+        .a_i(alu_result_m),
+        .b_i(ldur_data_m),
+        .sel_i(ldur_en_m)
+    );
+
+    or  #0.050 fwd_branch_sel1_g (fwd_branch_sel[1], fwd_branch_mem_id, 1'b0);
+    or  #0.050 fwd_branch_sel0_g (fwd_branch_sel[0], fwd_branch_wb_id, 1'b0);
+
+    mux3_1x64 branch_rd2_fwd_mux (
+        .z_o(ReadData2_branch_pre),
+        .a_i(ReadData2_n),
+        .b_i(WriteData_w),
+        .c_i(ReadData2_mem_fwd),
+        .sel_i(fwd_branch_sel)
+    );
+
+    mux2_1x64 branch_rd2_ex_fwd_mux (
+        .z_o(ReadData2_branch),
+        .a_i(ReadData2_branch_pre),
+        .b_i(alu_result_n),
+        .sel_i(fwd_branch_ex_id)
+    );
+
+    xor #0.050 branch_lt_neg_ovf_n_g (branch_lt_neg_ovf_n, negative_n, overflow_n);
+    xor #0.050 branch_lt_neg_ovf_r_g (branch_lt_neg_ovf_r, negative_r, overflow_r);
+    mux2_1 branch_lt_flags_mux (
+        .z_o(branch_lt_cond_id),
+        .a_i(branch_lt_neg_ovf_r),
+        .b_i(branch_lt_neg_ovf_n),
+        .sel_i(set_flags_r)
+    );
+
+    check_zero rd2_branch_zero_chk (.result(ReadData2_branch), .zero(rd2_branch_is_zero));
+    and #0.050 branch_cond_zero_id_g (branch_cond_zero_id, branch_zero_n, rd2_branch_is_zero);
+    and #0.050 branch_cond_lt_id_g (branch_cond_lt_id, branch_lt_n, branch_lt_cond_id);
+
+    or5_1 branch_taken_or5 (
+        .z_o(branch_taken_id),
+        .a_i({branch_reg_sel_n, branch_cond_lt_id, branch_cond_zero_id, branch_link_sel_n, branch_uncond_n})
+    );
 
     mux2_1x64 pc_branch_id_mux (
         .z_o(pc_non_reg_id),
