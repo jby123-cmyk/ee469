@@ -9,34 +9,23 @@ module forwarding_unit(
 
     input logic [4:0] WriteRegister_w,
     input logic reg_write_en_w,
+    input logic stur_en_m,
 
     output logic [1:0] forward_alu_A,
-    output logic [1:0] forward_alu_B
+    output logic [1:0] forward_alu_B,
+    output logic store_data_fwd_wb
 );
 
     // ignore X31 register forwarding
-    logic [4:0] x31_const;
-    logic [4:0] xor_rd_m_x31, xor_rd_w_x31;
     logic rd_m_not_x31, rd_w_not_x31;
-
-    assign x31_const = 5'b11111;
-
-    xor #0.050 xor_rd_m_x31_g [4:0] (xor_rd_m_x31, WriteRegister_m, x31_const);
-    or  #0.050 rd_m_not_x31_g (rd_m_not_x31, xor_rd_m_x31[0], xor_rd_m_x31[1], xor_rd_m_x31[2], xor_rd_m_x31[3], xor_rd_m_x31[4]);
-
-    xor #0.050 xor_rd_w_x31_g [4:0] (xor_rd_w_x31, WriteRegister_w, x31_const);
-    or  #0.050 rd_w_not_x31_g (rd_w_not_x31, xor_rd_w_x31[0], xor_rd_w_x31[1], xor_rd_w_x31[2], xor_rd_w_x31[3], xor_rd_w_x31[4]);
+    check_not_equal_5 rd_m_not_x31_cmp (.z_o(rd_m_not_x31), .a_i(WriteRegister_m), .b_i(5'b11111));
+    check_not_equal_5 rd_w_not_x31_cmp (.z_o(rd_w_not_x31), .a_i(WriteRegister_w), .b_i(5'b11111));
 
     // EX/MEM pipeline comparisons
-
-    logic [4:0] xor_rn_m, xor_rm_m;
     logic eq_rn_m, eq_rm_m;
 
-    xor #0.050 xor_rn_m_g [4:0] (xor_rn_m, ReadRegister1, WriteRegister_m);
-    nor #0.050 nor_rn_m_g (eq_rn_m, xor_rn_m[0], xor_rn_m[1], xor_rn_m[2], xor_rn_m[3], xor_rn_m[4]);
-
-    xor #0.050 xor_rm_m_g [4:0] (xor_rm_m, ReadRegister2, WriteRegister_m);
-    nor #0.050 nor_rm_m_g (eq_rm_m, xor_rm_m[0], xor_rm_m[1], xor_rm_m[2], xor_rm_m[3], xor_rm_m[4]);
+    check_equal_5 eq_rn_m_cmp (.z_o(eq_rn_m), .a_i(ReadRegister1), .b_i(WriteRegister_m));
+    check_equal_5 eq_rm_m_cmp (.z_o(eq_rm_m), .a_i(ReadRegister2), .b_i(WriteRegister_m));
 
     logic ex_write_valid;
     logic fwd_a_ex, fwd_b_ex;
@@ -46,15 +35,10 @@ module forwarding_unit(
     and #0.050 fwd_b_ex_g (fwd_b_ex, eq_rm_m, ex_write_valid);
 
     // MEM/WB pipeline comparisons
-
-    logic [4:0] xor_rn_w, xor_rm_w;
     logic eq_rn_w, eq_rm_w;
 
-    xor #0.050 xor_rn_w_g [4:0] (xor_rn_w, ReadRegister1, WriteRegister_w);
-    nor #0.050 nor_rn_w_g (eq_rn_w, xor_rn_w[0], xor_rn_w[1], xor_rn_w[2], xor_rn_w[3], xor_rn_w[4]);
-
-    xor #0.050 xor_rm_w_g [4:0] (xor_rm_w, ReadRegister2, WriteRegister_w);
-    nor #0.050 nor_rm_w_g (eq_rm_w, xor_rm_w[0], xor_rm_w[1], xor_rm_w[2], xor_rm_w[3], xor_rm_w[4]);
+    check_equal_5 eq_rn_w_cmp (.z_o(eq_rn_w), .a_i(ReadRegister1), .b_i(WriteRegister_w));
+    check_equal_5 eq_rm_w_cmp (.z_o(eq_rm_w), .a_i(ReadRegister2), .b_i(WriteRegister_w));
 
     logic wb_write_valid;
     logic fwd_a_wb_pre, fwd_b_wb_pre;
@@ -75,5 +59,11 @@ module forwarding_unit(
     or  #0.050 fwd_a_lo (forward_alu_A[0], fwd_a_wb, 1'b0);
     or  #0.050 fwd_b_hi (forward_alu_B[1], fwd_b_ex, 1'b0);
     or  #0.050 fwd_b_lo (forward_alu_B[0], fwd_b_wb, 1'b0);
+
+    // MEM stage data forwarding
+    logic store_src_eq_wb_dst;
+
+    check_equal_5 store_src_eq_wb_dst_cmp (.z_o(store_src_eq_wb_dst), .a_i(WriteRegister_m), .b_i(WriteRegister_w));
+    and #0.050 store_data_fwd_wb_g (store_data_fwd_wb, stur_en_m, wb_write_valid, store_src_eq_wb_dst);
 
 endmodule
