@@ -11,7 +11,6 @@ module cpu(input logic clk, reset);
     logic if_id_write_en_hzd;
     logic if_id_flush_hzd;
     logic id_ex_flush_hzd;
-    logic ex_mem_flush_hzd;
     logic branch_taken_id;
     logic [63:0] pc_non_reg_id;
     logic [63:0] pc_add_imm_id;
@@ -184,7 +183,10 @@ module cpu(input logic clk, reset);
     logic fwd_branch_wb_pre, not_fwd_branch_ex, not_fwd_branch_mem;
     logic [1:0] fwd_branch_sel;
     logic [63:0] ReadData2_branch_pre;
-    logic branch_lt_neg_ovf_n, branch_lt_neg_ovf_r;
+    logic branch_lt_neg_ovf_n, branch_lt_neg_ovf_r, branch_lt_neg_ovf_m;
+    logic subs_in_mem;
+    logic set_flags_m;
+    logic [1:0] branch_lt_flags_sel;
     logic rd2_branch_is_zero;
 
     assign id_is_branch = branch_uncond_n | branch_link_sel_n | branch_zero_n | branch_lt_n | branch_reg_sel_n;
@@ -204,7 +206,7 @@ module cpu(input logic clk, reset);
     assign mem_ctl_n = {ldur_en_n, stur_en_n};
     assign ex_ctl_n = {alu_cntrl_n, alu_src_n, branch_uncond_n, branch_zero_n, branch_lt_n, branch_reg_sel_n, set_flags_n};
 
-    assign pipeline_id_ex_n_raw = {wb_ctl_n, mem_ctl_n, ex_ctl_n, pipeline_if_id_r[95:32], ReadData1_n, ReadData2_n, imm_value_n, WriteRegister_n, rn, rm};
+    assign pipeline_id_ex_n_raw = {wb_ctl_n, mem_ctl_n, ex_ctl_n, pipeline_if_id_r[95:32], ReadData1_n, ReadData2_n, imm_value_n, WriteRegister_n, rn, read_register2_x5};
     assign pipeline_id_ex_n = id_ex_flush_hzd ? 285'b0 : pipeline_id_ex_n_raw;
 
     D_FF_param #(285) pipeline_id_ex_dff 
@@ -255,18 +257,17 @@ module cpu(input logic clk, reset);
 
     // forwarding unit
     logic [4:0] WriteRegister_m;
-    logic [63:0] alu_result_mem_fwd;
+    logic [63:0] ex_mem_fwd_data;
     logic reg_write_en_mem_fwd;
-    logic [272:0] pipeline_ex_mem_r, pipeline_ex_mem_n, pipeline_ex_mem_n_raw;
+    logic [273:0] pipeline_ex_mem_r, pipeline_ex_mem_n, pipeline_ex_mem_n_raw;
     logic ldur_en_m, stur_en_m;
     
-    //assign WriteRegister_mem_fwd = pipeline_ex_mem_r[68:64];
-    assign alu_result_mem_fwd = pipeline_ex_mem_r[196:133];
-    assign reg_write_en_mem_fwd = pipeline_ex_mem_r[272];
+    assign reg_write_en_mem_fwd = pipeline_ex_mem_r[273];
 
     logic [1:0] forward_alu_A, forward_alu_B;
-    logic store_data_fwd_wb;
+    logic store_data_fwd_wb, store_data_fwd_ex;
     logic [63:0] alu_A_forwarded, alu_B_forwarded;
+    logic [63:0] store_data_pre;
 
     forwarding_unit fwd_unit (
         .ReadRegister1(rn_r),
@@ -276,16 +277,19 @@ module cpu(input logic clk, reset);
         .WriteRegister_w(WriteRegister_w),
         .reg_write_en_w(reg_write_en_w),
         .stur_en_m(stur_en_m),
+        .WriteRegister_ex(WriteRegister_r),
+        .reg_write_en_ex(wb_ctl_r[2]),
         .forward_alu_A(forward_alu_A),
         .forward_alu_B(forward_alu_B),
-        .store_data_fwd_wb(store_data_fwd_wb)
+        .store_data_fwd_wb(store_data_fwd_wb),
+        .store_data_fwd_ex(store_data_fwd_ex)
     );
 
     mux3_1x64 alu_a_fwd_mux (
         .z_o(alu_A_forwarded),
         .a_i(ReadData1_r),
         .b_i(WriteData_w),
-        .c_i(alu_result_mem_fwd),
+        .c_i(ex_mem_fwd_data),
         .sel_i(forward_alu_A)
     );
 
@@ -293,7 +297,7 @@ module cpu(input logic clk, reset);
         .z_o(alu_B_forwarded),
         .a_i(ReadData2_r),
         .b_i(WriteData_w),
-        .c_i(alu_result_mem_fwd),
+        .c_i(ex_mem_fwd_data),
         .sel_i(forward_alu_B)
     );
 
@@ -341,10 +345,11 @@ module cpu(input logic clk, reset);
                                 .imm(branch_imm_shifted),
                                 .pc_n(pc_add_imm_n));
 
-    assign pipeline_ex_mem_n_raw = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, pc_add_imm_n, zero_n, negative_r, overflow_r, alu_result_n, ReadData2_r, WriteRegister_r, pc_add_4_ex};
-    assign pipeline_ex_mem_n = ex_mem_flush_hzd ? 273'b0 : pipeline_ex_mem_n_raw;
+    // Latch live ALU flags (negative_n), not pre-update negative_r, into EX/MEM
+    assign pipeline_ex_mem_n_raw = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, set_flags_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, ReadData2_r, WriteRegister_r, pc_add_4_ex};
+    assign pipeline_ex_mem_n = pipeline_ex_mem_n_raw;
 
-    D_FF_param #(273) pipeline_ex_mem_dff 
+    D_FF_param #(274) pipeline_ex_mem_dff 
                 (.q(pipeline_ex_mem_r), 
                  .d(pipeline_ex_mem_n), 
                  .reset(reset), 
@@ -368,12 +373,13 @@ module cpu(input logic clk, reset);
     logic [63:0] pc_add_4_m;
     logic branch_link_sel_m;
 
-    assign wb_ctl_m = pipeline_ex_mem_r[272:270];
-    assign mem_ctl_m = pipeline_ex_mem_r[269:268];
-    assign branch_uncond_m = pipeline_ex_mem_r[267];
-    assign branch_zero_m = pipeline_ex_mem_r[266];
-    assign branch_lt_m = pipeline_ex_mem_r[265];
-    assign branch_reg_sel_m = pipeline_ex_mem_r[264];
+    assign wb_ctl_m = pipeline_ex_mem_r[273:271];
+    assign mem_ctl_m = pipeline_ex_mem_r[270:269];
+    assign branch_uncond_m = pipeline_ex_mem_r[268];
+    assign branch_zero_m = pipeline_ex_mem_r[267];
+    assign branch_lt_m = pipeline_ex_mem_r[266];
+    assign branch_reg_sel_m = pipeline_ex_mem_r[265];
+    assign set_flags_m = pipeline_ex_mem_r[264];
     assign pc_add_imm_m = pipeline_ex_mem_r[263:200];
     assign zero_eval_m = pipeline_ex_mem_r[199];
     assign negative_eval_m = pipeline_ex_mem_r[198];
@@ -395,11 +401,18 @@ module cpu(input logic clk, reset);
     assign mem_addr = alu_result_m;
     assign xfer_size = 4'd8;
 
-    mux2_1x64 store_data_fwd_mux (
-        .z_o(store_data_m),
+    mux2_1x64 store_data_wb_fwd_mux (
+        .z_o(store_data_pre),
         .a_i(ReadData2_m),
         .b_i(WriteData_w),
         .sel_i(store_data_fwd_wb)
+    );
+
+    mux2_1x64 store_data_ex_fwd_mux (
+        .z_o(store_data_m),
+        .a_i(store_data_pre),
+        .b_i(alu_result_n),
+        .sel_i(store_data_fwd_ex)
     );
 
     datamem data_memory(
@@ -411,6 +424,13 @@ module cpu(input logic clk, reset);
         .xfer_size(xfer_size), 
         .read_data(ldur_data_m)
 	);
+
+    mux2_1x64 ex_mem_fwd_mux (
+        .z_o(ex_mem_fwd_data),
+        .a_i(alu_result_m),
+        .b_i(ldur_data_m),
+        .sel_i(ldur_en_m)
+    );
 
     logic [199:0] pipeline_mem_wb_r, pipeline_mem_wb_n;
     assign pipeline_mem_wb_n = {wb_ctl_m, alu_result_m, ldur_data_m, WriteRegister_m, pc_add_4_m};
@@ -501,13 +521,21 @@ module cpu(input logic clk, reset);
         .sel_i(fwd_branch_ex_id)
     );
 
+    // SUBS X31,X2,X3 in MEM when B.LT NO_SWAP is in ID (NOOP in EX): use pipelined flags
+    assign subs_in_mem = set_flags_m & reg_write_en_mem_fwd
+                       & (WriteRegister_m == 5'b11111) & ~ldur_en_m;
+
     xor #0.050 branch_lt_neg_ovf_n_g (branch_lt_neg_ovf_n, negative_n, overflow_n);
     xor #0.050 branch_lt_neg_ovf_r_g (branch_lt_neg_ovf_r, negative_r, overflow_r);
-    mux2_1 branch_lt_flags_mux (
+    xor #0.050 branch_lt_neg_ovf_m_g (branch_lt_neg_ovf_m, negative_eval_m, overflow_eval_m);
+    assign branch_lt_flags_sel[1] = set_flags_r;
+    assign branch_lt_flags_sel[0] = subs_in_mem & ~set_flags_r;
+    mux3_1 branch_lt_flags_mux (
         .z_o(branch_lt_cond_id),
         .a_i(branch_lt_neg_ovf_r),
-        .b_i(branch_lt_neg_ovf_n),
-        .sel_i(set_flags_r)
+        .b_i(branch_lt_neg_ovf_m),
+        .c_i(branch_lt_neg_ovf_n),
+        .sel_i(branch_lt_flags_sel)
     );
 
     check_zero rd2_branch_zero_chk (.result(ReadData2_branch), .zero(rd2_branch_is_zero));
@@ -536,11 +564,6 @@ module cpu(input logic clk, reset);
     hazard_detection_unit hzd_unit (
         .id_ex_memread(mem_ctl_r[1]),
         .id_ex_rd(WriteRegister_r),
-        .mem_ldur_en(ldur_en_m),
-        .mem_rd(WriteRegister_m),
-        .ex_rn(rn_r),
-        .ex_rm(rm_r),
-        .ex_regwrite(wb_ctl_r[2]),
         .if_id_rn(ReadRegister1),
         .if_id_rm(ReadRegister2),
         .reg_write_en_w(reg_write_en_w),
@@ -549,8 +572,7 @@ module cpu(input logic clk, reset);
         .pc_write_en(pc_write_en_hzd),
         .if_id_write_en(if_id_write_en_hzd),
         .if_id_flush(if_id_flush_hzd),
-        .id_ex_flush(id_ex_flush_hzd),
-        .ex_mem_flush(ex_mem_flush_hzd)
+        .id_ex_flush(id_ex_flush_hzd)
     );
 
     // IF stage: PC state register

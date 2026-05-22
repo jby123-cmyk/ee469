@@ -10,10 +10,13 @@ module forwarding_unit(
     input logic [4:0] WriteRegister_w,
     input logic reg_write_en_w,
     input logic stur_en_m,
+    input logic [4:0] WriteRegister_ex,
+    input logic reg_write_en_ex,
 
     output logic [1:0] forward_alu_A,
     output logic [1:0] forward_alu_B,
-    output logic store_data_fwd_wb
+    output logic store_data_fwd_wb,
+    output logic store_data_fwd_ex
 );
 
     // ignore X31 register forwarding
@@ -60,10 +63,15 @@ module forwarding_unit(
     or  #0.050 fwd_b_hi (forward_alu_B[1], fwd_b_ex, 1'b0);
     or  #0.050 fwd_b_lo (forward_alu_B[0], fwd_b_wb, 1'b0);
 
-    // MEM stage data forwarding
-    logic store_src_eq_wb_dst;
+    // MEM stage store forwarding (Rt of STUR is WriteRegister_m)
+    logic store_src_eq_wb, store_src_eq_ex;
+    logic wr_ex_not_x31;
 
-    check_equal_5 store_src_eq_wb_dst_cmp (.z_o(store_src_eq_wb_dst), .a_i(WriteRegister_m), .b_i(WriteRegister_w));
-    and #0.050 store_data_fwd_wb_g (store_data_fwd_wb, stur_en_m, wb_write_valid, store_src_eq_wb_dst);
+    check_equal_5 store_src_eq_wb_cmp (.z_o(store_src_eq_wb), .a_i(WriteRegister_m), .b_i(WriteRegister_w));
+    check_equal_5 store_src_eq_ex_cmp (.z_o(store_src_eq_ex), .a_i(WriteRegister_m), .b_i(WriteRegister_ex));
+    check_not_equal_5 wr_ex_not_x31_cmp (.z_o(wr_ex_not_x31), .a_i(WriteRegister_ex), .b_i(5'b11111));
+
+    and #0.050 store_data_fwd_wb_g (store_data_fwd_wb, stur_en_m, wb_write_valid, store_src_eq_wb);
+    and #0.050 store_data_fwd_ex_g (store_data_fwd_ex, stur_en_m, reg_write_en_ex, wr_ex_not_x31, store_src_eq_ex);
 
 endmodule
