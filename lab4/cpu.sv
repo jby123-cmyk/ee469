@@ -265,9 +265,8 @@ module cpu(input logic clk, reset);
     assign reg_write_en_mem_fwd = pipeline_ex_mem_r[273];
 
     logic [1:0] forward_alu_A, forward_alu_B;
-    logic store_data_fwd_wb, store_data_fwd_ex;
+    logic store_data_fwd_wb;
     logic [63:0] alu_A_forwarded, alu_B_forwarded;
-    logic [63:0] store_data_pre;
 
     forwarding_unit fwd_unit (
         .ReadRegister1(rn_r),
@@ -277,12 +276,9 @@ module cpu(input logic clk, reset);
         .WriteRegister_w(WriteRegister_w),
         .reg_write_en_w(reg_write_en_w),
         .stur_en_m(stur_en_m),
-        .WriteRegister_ex(WriteRegister_r),
-        .reg_write_en_ex(wb_ctl_r[2]),
         .forward_alu_A(forward_alu_A),
         .forward_alu_B(forward_alu_B),
-        .store_data_fwd_wb(store_data_fwd_wb),
-        .store_data_fwd_ex(store_data_fwd_ex)
+        .store_data_fwd_wb(store_data_fwd_wb)
     );
 
     mux3_1x64 alu_a_fwd_mux (
@@ -345,8 +341,12 @@ module cpu(input logic clk, reset);
                                 .imm(branch_imm_shifted),
                                 .pc_n(pc_add_imm_n));
 
-    // Latch live ALU flags (negative_n), not pre-update negative_r, into EX/MEM
-    assign pipeline_ex_mem_n_raw = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, set_flags_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, ReadData2_r, WriteRegister_r, pc_add_4_ex};
+    // Latch live ALU flags (negative_n), not pre-update negative_r, into EX/MEM.
+    // For STUR, use alu_B_forwarded (the EX-stage forwarded Rt) as the store
+    // data, so the value committed to memory reflects EX/MEM and MEM/WB
+    // forwarding from older instructions. Latching plain ReadData2_r here would
+    // miss those forwards and require a fragile MEM-stage patch.
+    assign pipeline_ex_mem_n_raw = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, set_flags_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, alu_B_forwarded, WriteRegister_r, pc_add_4_ex};
     assign pipeline_ex_mem_n = pipeline_ex_mem_n_raw;
 
     D_FF_param #(274) pipeline_ex_mem_dff 
@@ -402,17 +402,10 @@ module cpu(input logic clk, reset);
     assign xfer_size = 4'd8;
 
     mux2_1x64 store_data_wb_fwd_mux (
-        .z_o(store_data_pre),
+        .z_o(store_data_m),
         .a_i(ReadData2_m),
         .b_i(WriteData_w),
         .sel_i(store_data_fwd_wb)
-    );
-
-    mux2_1x64 store_data_ex_fwd_mux (
-        .z_o(store_data_m),
-        .a_i(store_data_pre),
-        .b_i(alu_result_n),
-        .sel_i(store_data_fwd_ex)
     );
 
     datamem data_memory(
