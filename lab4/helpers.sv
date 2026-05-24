@@ -8,7 +8,7 @@ module check_equal_5(
     logic [4:0] xor_res;
 
     xor #0.050 xor_cmp [4:0] (xor_res, a_i, b_i);
-    nor5_1 nor5_eq (.z_o(z_o), .a_i(xor_res));
+    nor #0.050 nor_eq (z_o, xor_res[4], xor_res[3], xor_res[2], xor_res[1], xor_res[0]);
 endmodule
 
 module check_not_equal_5(
@@ -19,5 +19,5 @@ module check_not_equal_5(
     logic [4:0] xor_res;
 
     xor #0.050 xor_cmp [4:0] (xor_res, a_i, b_i);
-    or5_1 or5_neq (.z_o(z_o), .a_i(xor_res));
+    or #0.050 or_neq (z_o, xor_res[4], xor_res[3], xor_res[2], xor_res[1], xor_res[0]);
 endmodule
