@@ -48,11 +48,10 @@ module hazard_detection_unit(
     assign pc_write_en     = ~stall_hazard;
     assign if_id_write_en = ~stall_hazard;
 
-    // Bubble ID/EX on any stall: load-use AND id-wb-read both leave a stale
-    // (ReadData1_n, ReadData2_n) latched into ID/EX if not flushed. The held
-    // instruction re-runs ID next cycle and gets fresh regfile reads.
+    // Bubble ID/EX on any stall
     assign id_ex_flush = stall_hazard;
 
+    // Flush IF/ID on branch taken and no stall hazard
     assign if_id_flush = branch_taken & ~stall_hazard;
 
 endmodule

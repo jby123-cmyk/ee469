@@ -60,14 +60,11 @@ module forwarding_unit(
     or  #0.050 fwd_b_hi (forward_alu_B[1], fwd_b_ex, 1'b0);
     or  #0.050 fwd_b_lo (forward_alu_B[0], fwd_b_wb, 1'b0);
 
-    // MEM-stage store forwarding from WB. Covers the case where a producer
-    // older than STUR commits during the cycle STUR sits in MEM. (With
-    // alu_B_forwarded pipelined into ReadData2_m, the EX-time forward usually
-    // captures this already, so this path is a redundant safety net.)
+    // MEM-stage store forwarding from WB
     logic store_src_eq_wb;
 
     check_equal_5 store_src_eq_wb_cmp (.z_o(store_src_eq_wb), .a_i(WriteRegister_m), .b_i(WriteRegister_w));
-
+    
     and #0.050 store_data_fwd_wb_g (store_data_fwd_wb, stur_en_m, wb_write_valid, store_src_eq_wb);
 
 endmodule

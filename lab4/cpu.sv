@@ -1,9 +1,9 @@
 `timescale 1ns/10ps
 
 module cpu(input logic clk, reset);
-
+//***************************************************************//
 // Instruction fetch stage 
-
+//***************************************************************//
     logic [31:0] instruction;
     logic [63:0] pc_r;
     logic [63:0] pc_n;
@@ -43,7 +43,9 @@ module cpu(input logic clk, reset);
                  .reset(reset), 
                  .clk(clk));
 
-// Instruction decode and register read
+//***************************************************************//
+// Instruction decode stage 
+//***************************************************************//
 
     // instruction decode + control
     logic [31:0] instruction_r;
@@ -215,7 +217,9 @@ module cpu(input logic clk, reset);
                  .reset(reset), 
                  .clk(clk));
 
-// Execute stage
+//***************************************************************//
+// Execute stage 
+//***************************************************************//
     logic [2:0] wb_ctl_r;
     logic [1:0] mem_ctl_r;
     logic [8:0] ex_ctl_r;
@@ -341,13 +345,8 @@ module cpu(input logic clk, reset);
                                 .imm(branch_imm_shifted),
                                 .pc_n(pc_add_imm_n));
 
-    // Latch live ALU flags (negative_n), not pre-update negative_r, into EX/MEM.
-    // For STUR, use alu_B_forwarded (the EX-stage forwarded Rt) as the store
-    // data, so the value committed to memory reflects EX/MEM and MEM/WB
-    // forwarding from older instructions. Latching plain ReadData2_r here would
-    // miss those forwards and require a fragile MEM-stage patch.
-    assign pipeline_ex_mem_n_raw = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, set_flags_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, alu_B_forwarded, WriteRegister_r, pc_add_4_ex};
-    assign pipeline_ex_mem_n = pipeline_ex_mem_n_raw;
+    // Latch ALU flags and other pipeline signals
+    assign pipeline_ex_mem_n = {wb_ctl_r, mem_ctl_r, branch_uncond_r, branch_zero_r, branch_lt_r, branch_reg_sel_r, set_flags_r, pc_add_imm_n, zero_n, negative_n, overflow_n, alu_result_n, alu_B_forwarded, WriteRegister_r, pc_add_4_ex};
 
     D_FF_param #(274) pipeline_ex_mem_dff 
                 (.q(pipeline_ex_mem_r), 
@@ -355,9 +354,9 @@ module cpu(input logic clk, reset);
                  .reset(reset), 
                  .clk(clk));
 
-
-// MEM stage
-
+//***************************************************************//
+// MEM stage 
+//***************************************************************//
     logic [2:0] wb_ctl_m;
     logic [1:0] mem_ctl_m;
     logic branch_uncond_m;
@@ -433,10 +432,10 @@ module cpu(input logic clk, reset);
                  .d(pipeline_mem_wb_n), 
                  .reset(reset), 
                  .clk(clk));
-
+                 
+//***************************************************************//
 // WB stage
-
-
+//***************************************************************//
     logic [2:0] wb_ctl_w;
     logic [63:0] alu_result_w;
     logic [63:0] ldur_data_w;
@@ -469,7 +468,7 @@ module cpu(input logic clk, reset);
         .sel_i(ldur_en_w)
     );
 
-    // ID-stage branch resolution (forward from EX/MEM/WB before updating PC)
+    // ID-stage branch resolution 
     check_equal_5 eq_wr_r_rm2_cmp (.z_o(eq_wr_r_rm2), .a_i(WriteRegister_r), .b_i(ReadRegister2));
     check_not_equal_5 wr_r_not_x31_cmp (.z_o(wr_r_not_x31), .a_i(WriteRegister_r), .b_i(5'b11111));
     not #0.050 not_mem_ldur_ex_g (not_mem_ldur_ex, mem_ctl_r[1]);
@@ -514,7 +513,6 @@ module cpu(input logic clk, reset);
         .sel_i(fwd_branch_ex_id)
     );
 
-    // SUBS X31,X2,X3 in MEM when B.LT NO_SWAP is in ID (NOOP in EX): use pipelined flags
     assign subs_in_mem = set_flags_m & reg_write_en_mem_fwd
                        & (WriteRegister_m == 5'b11111) & ~ldur_en_m;
 
