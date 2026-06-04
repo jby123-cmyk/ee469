@@ -25,7 +25,7 @@
 // Line to set up the timing of simulation: says units to use are ns, and smallest resolution is 10ps.
 `timescale 1ns/10ps
 
-module lab5 #(parameter [22:0] MODEL_NUMBER = 1350364, parameter DMEM_ADDRESS_WIDTH = 20) (
+module lab5 #(parameter [22:0] MODEL_NUMBER = 2335095, parameter DMEM_ADDRESS_WIDTH = 20) (
 	// Commands:
 	//   (Comes from processor).
 	input		logic [DMEM_ADDRESS_WIDTH-1:0]	address,			// The byte address.  Must be word-aligned if byte_access != 1.
@@ -51,7 +51,7 @@ endmodule
 // Test the data memory, and figure out the settings.
 
 module lab5_testbench ();
-	localparam USERID = 1470460;  // Set to your student ID #
+	localparam USERID = 2335095;  // Set to your student ID #
 	localparam ADDRESS_WIDTH = 20;
 	localparam DATA_WIDTH = 8;
 	
