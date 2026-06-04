@@ -14,8 +14,8 @@ add wave -noupdate /lab5_testbench/data_out
 add wave -noupdate /lab5_testbench/clk
 add wave -noupdate /lab5_testbench/reset
 add wave -noupdate /lab5_testbench/cycles
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/MODEL_NUMBER
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/DMEM_ADDRESS_WIDTH
+add wave -noupdate /lab5_testbench/dut/dmem/MODEL_NUMBER
+add wave -noupdate /lab5_testbench/dut/dmem/DMEM_ADDRESS_WIDTH
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/RANDOM_BITS
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/SCRAMBLE1
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/SCRAMBLE2
@@ -27,35 +27,35 @@ add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1out_WRITE
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_PRESENT
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2out_WRITE_BUFFER
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3out_WRITE_BUFFER
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_DATA_WIDTH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_BLOCKSIZE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_DATA_WIDTH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_BLOCKSIZE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_DATA_WIDTH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_BLOCKSIZE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/MM_BLOCKSIZE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_HIT_TIME
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_HIT_TIME
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_HIT_TIME
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/MM_DELAY
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_NUM_BLOCKS
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_NUM_BLOCKS
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_NUM_BLOCKS
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_ASSOC_TEMP
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_ASSOCIATIVITY
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_ASSOC_TEMP
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_ASSOCIATIVITY
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_ASSOC_TEMP
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_ASSOCIATIVITY
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_LRU
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_WRITE_THROUGH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L1_WRITE_ALLOCATE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_LRU
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_WRITE_THROUGH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L2_WRITE_ALLOCATE
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_LRU
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_WRITE_THROUGH
-add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/L3_WRITE_ALLOCATE
+add wave -noupdate /lab5_testbench/dut/dmem/L1_DATA_WIDTH
+add wave -noupdate /lab5_testbench/dut/dmem/L1_BLOCKSIZE
+add wave -noupdate /lab5_testbench/dut/dmem/L2_DATA_WIDTH
+add wave -noupdate /lab5_testbench/dut/dmem/L2_BLOCKSIZE
+add wave -noupdate /lab5_testbench/dut/dmem/L3_DATA_WIDTH
+add wave -noupdate /lab5_testbench/dut/dmem/L3_BLOCKSIZE
+add wave -noupdate /lab5_testbench/dut/dmem/MM_BLOCKSIZE
+add wave -noupdate /lab5_testbench/dut/dmem/L1_HIT_TIME
+add wave -noupdate /lab5_testbench/dut/dmem/L2_HIT_TIME
+add wave -noupdate /lab5_testbench/dut/dmem/L3_HIT_TIME
+add wave -noupdate /lab5_testbench/dut/dmem/MM_DELAY
+add wave -noupdate /lab5_testbench/dut/dmem/L1_NUM_BLOCKS
+add wave -noupdate /lab5_testbench/dut/dmem/L2_NUM_BLOCKS
+add wave -noupdate /lab5_testbench/dut/dmem/L3_NUM_BLOCKS
+add wave -noupdate /lab5_testbench/dut/dmem/L1_ASSOC_TEMP
+add wave -noupdate /lab5_testbench/dut/dmem/L1_ASSOCIATIVITY
+add wave -noupdate /lab5_testbench/dut/dmem/L2_ASSOC_TEMP
+add wave -noupdate /lab5_testbench/dut/dmem/L2_ASSOCIATIVITY
+add wave -noupdate /lab5_testbench/dut/dmem/L3_ASSOC_TEMP
+add wave -noupdate /lab5_testbench/dut/dmem/L3_ASSOCIATIVITY
+add wave -noupdate /lab5_testbench/dut/dmem/L1_LRU
+add wave -noupdate /lab5_testbench/dut/dmem/L1_WRITE_THROUGH
+add wave -noupdate /lab5_testbench/dut/dmem/L1_WRITE_ALLOCATE
+add wave -noupdate /lab5_testbench/dut/dmem/L2_LRU
+add wave -noupdate /lab5_testbench/dut/dmem/L2_WRITE_THROUGH
+add wave -noupdate /lab5_testbench/dut/dmem/L2_WRITE_ALLOCATE
+add wave -noupdate /lab5_testbench/dut/dmem/L3_LRU
+add wave -noupdate /lab5_testbench/dut/dmem/L3_WRITE_THROUGH
+add wave -noupdate /lab5_testbench/dut/dmem/L3_WRITE_ALLOCATE
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/address
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/data_in
 add wave -noupdate -expand -group Internals /lab5_testbench/dut/dmem/bytemask
