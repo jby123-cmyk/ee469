@@ -240,32 +240,387 @@ module lab5_testbench ();
 	logic [ADDRESS_WIDTH-1:0]		addr;
 	int	i, delay, minval, maxval;
 	
-	initial begin
-		dummy_data <= '0;
-		resetMem();				// Initialize the memory.
+	function int isPow2;
+		input int x;
+		isPow2 = (x > 0) && ((x & (x-1)) == 0);
+	endfunction
+	
+	function int tierIndex;
+		input int d;
+		input int ntiers;
+		input int t0;
+		input int t1;
+		input int t2;
+		input int t3;
 		
-		// Do 20 random reads.
-		for (i=0; i<20; i++) begin
-			addr = $random()*8; // *8 to doubleword-align the access.
-			readMem(addr, dummy_data, delay);
-			$display("%t Read took %d cycles", $time, delay);
+		if (ntiers <= 0) tierIndex = -1;
+		else if (d == t0) tierIndex = 0;
+		else if (ntiers > 1 && d == t1) tierIndex = 1;
+		else if (ntiers > 2 && d == t2) tierIndex = 2;
+		else if (ntiers > 3 && d == t3) tierIndex = 3;
+		else if (d < t0) tierIndex = 0;
+		else if (ntiers == 1) tierIndex = 0;
+		else if (ntiers == 2) tierIndex = (d < t1) ? 0 : 1;
+		else if (ntiers == 3) begin
+			if (d < t1) tierIndex = 0;
+			else if (d < t2) tierIndex = 1;
+			else tierIndex = 2;
+		end else begin
+			if (d < t1) tierIndex = 0;
+			else if (d < t2) tierIndex = 1;
+			else if (d < t3) tierIndex = 2;
+			else tierIndex = 3;
 		end
+	endfunction
+	
+	task probeDelayAfterN;
+		input int n_blocks;
+		input int stride_bytes;
+		output int observed_delay;
+		int j, warm_delay;
+		logic [DATA_WIDTH-1:0][7:0] rd;
 		
-		// Do 5 random double-word writes of random data.
-		for (i=0; i<5; i++) begin
-			addr = $random()*8; // *8 to doubleword-align the access.
-			dummy_data = $random();
-			writeMem(addr, dummy_data, 8'hFF, delay);
-			$display("%t Write took %d cycles", $time, delay);
-		end
-		
-		// Reset the memory.
 		resetMem();
+		readMem(0, rd, warm_delay); // Pull base line into hierarchy.
+		for (j=1; j<=n_blocks; j++) begin
+			readMem((j*stride_bytes), rd, warm_delay);
+		end
+		readMem(0, rd, observed_delay);
+	endtask
+	
+	task collectDelayTiers;
+		input int stride_bytes;
+		output int ntiers;
+		output int t0;
+		output int t1;
+		output int t2;
+		output int t3;
 		
-		// Read all of the first KB
-		readStride(0, 8, 1024/8, minval, maxval);
-		$display("%t Reading the first KB took between %d and %d cycles each", $time, minval, maxval);
-
+		int seen[0:15];
+		int nseen, sampleN, d;
+		int ii, jj, tmp, found;
+		
+		nseen = 0;
+		for (ii=0; ii<=12; ii++) begin
+			if (ii == 0) sampleN = 0;
+			else sampleN = (1 << (ii-1)); // 1,2,4,...,2048
+			probeDelayAfterN(sampleN, stride_bytes, d);
+			found = 0;
+			for (jj=0; jj<nseen; jj++) begin
+				if (seen[jj] == d) found = 1;
+			end
+			if (!found && nseen < 16) begin
+				seen[nseen] = d;
+				nseen = nseen + 1;
+			end
+		end
+		
+		for (ii=0; ii<nseen; ii++) begin
+			for (jj=ii+1; jj<nseen; jj++) begin
+				if (seen[jj] < seen[ii]) begin
+					tmp = seen[ii];
+					seen[ii] = seen[jj];
+					seen[jj] = tmp;
+				end
+			end
+		end
+		
+		ntiers = nseen;
+		t0 = (nseen > 0) ? seen[0] : -1;
+		t1 = (nseen > 1) ? seen[1] : -1;
+		t2 = (nseen > 2) ? seen[2] : -1;
+		t3 = (nseen > 3) ? seen[3] : -1;
+	endtask
+	
+	task inferL1Blocksize;
+		input int l1_hit_delay;
+		output int l1_blocksize;
+		int off, d, warm_delay;
+		logic [DATA_WIDTH-1:0][7:0] rd;
+		
+		l1_blocksize = -1;
+		resetMem();
+		readMem(0, rd, warm_delay);
+		for (off=8; off<=2048; off=off+8) begin
+			readMem(off, rd, d);
+			if (d != l1_hit_delay) begin
+				l1_blocksize = off;
+				off = 4096; // loop exit sentinel
+			end
+		end
+		if (l1_blocksize < 0) l1_blocksize = 8;
+	endtask
+	
+	task findEvictionPoint;
+		input int baseline_delay;
+		input int stride_bytes;
+		input int max_blocks;
+		output int first_n;
+		output int observed_delay;
+		
+		int lo, hi, mid, dmid;
+		int dtmp;
+		
+		first_n = -1;
+		observed_delay = -1;
+		hi = 1;
+		while (hi <= max_blocks) begin
+			probeDelayAfterN(hi, stride_bytes, dtmp);
+			if (dtmp > baseline_delay) begin
+				first_n = hi;
+				observed_delay = dtmp;
+				hi = max_blocks + 1;
+			end else begin
+				hi = hi * 2;
+			end
+		end
+		
+		if (first_n == -1) begin
+			probeDelayAfterN(max_blocks, stride_bytes, dtmp);
+			observed_delay = dtmp;
+		end else begin
+			lo = (first_n/2) + 1;
+			hi = first_n;
+			while (lo <= hi) begin
+				mid = (lo + hi)/2;
+				probeDelayAfterN(mid, stride_bytes, dmid);
+				if (dmid > baseline_delay) begin
+					first_n = mid;
+					observed_delay = dmid;
+					hi = mid - 1;
+				end else begin
+					lo = mid + 1;
+				end
+			end
+		end
+	endtask
+	
+	task inferAssociativity;
+		input int level_delay;
+		input int level_capacity_bytes;
+		input int l1_blocksize;
+		input int upper_evict_blocks;
+		output int assoc_guess;
+		
+		int k, j, d, warm_delay;
+		int stride_conflict;
+		logic [DATA_WIDTH-1:0][7:0] rd;
+		
+		assoc_guess = -1;
+		if (level_capacity_bytes <= 0) begin
+			assoc_guess = -1;
+		end else begin
+			stride_conflict = level_capacity_bytes;
+			for (k=1; k<=32; k++) begin
+				resetMem();
+				readMem(0, rd, warm_delay);
+				for (j=1; j<=k; j++) begin
+					readMem(j*stride_conflict, rd, warm_delay);
+				end
+				// For lower levels, make sure the final probe is not hidden by an upper-level hit.
+				for (j=1; j<=upper_evict_blocks; j++) begin
+					readMem((16*stride_conflict) + j*l1_blocksize, rd, warm_delay);
+				end
+				readMem(0, rd, d);
+				if (d > level_delay) begin
+					assoc_guess = k;
+					k = 1000; // loop exit sentinel
+				end
+			end
+		end
+	endtask
+	
+	task inferReplacementPolicy;
+		input int level_delay;
+		input int level_capacity_bytes;
+		input int l1_blocksize;
+		input int upper_evict_blocks;
+		input int assoc_guess;
+		output int lru_like;  // 1=LRU-like, 0=random-like/other, -1=unknown
+		
+		int trial, j, d, warm_delay, base_miss_count;
+		int stride_conflict;
+		logic [DATA_WIDTH-1:0][7:0] rd;
+		
+		lru_like = -1;
+		if (assoc_guess <= 1 || level_capacity_bytes <= 0) begin
+			lru_like = -1; // Direct mapped or unknown.
+		end else begin
+			base_miss_count = 0;
+			stride_conflict = level_capacity_bytes;
+			for (trial=0; trial<8; trial++) begin
+				resetMem();
+				readMem(0, rd, warm_delay);
+				for (j=1; j<=assoc_guess-1; j++) begin
+					readMem(j*stride_conflict + trial*64, rd, warm_delay);
+				end
+				readMem(0, rd, warm_delay); // Make base most-recently used.
+				readMem((assoc_guess*stride_conflict) + trial*64, rd, warm_delay); // Force one eviction.
+				for (j=1; j<=upper_evict_blocks; j++) begin
+					readMem((24*stride_conflict) + j*l1_blocksize + trial*8, rd, warm_delay);
+				end
+				readMem(0, rd, d);
+				if (d > level_delay) base_miss_count = base_miss_count + 1;
+			end
+			lru_like = (base_miss_count == 0) ? 1 : 0;
+		end
+	endtask
+	
+	task inferL1WriteBehavior;
+		input int l1_hit_delay;
+		input int l2_path_delay;
+		output int write_allocate; // 1/0
+		output int write_through;  // 1/0 (heuristic)
+		output int has_write_buffer; // 1/0 (heuristic)
+		
+		int d_whit, d_wmiss, d_r_after_wmiss, d_r_miss;
+		logic [DATA_WIDTH-1:0][7:0] rd, wr;
+		
+		wr = 64'h01234567_89ABCDEF;
+		
+		// Write-allocate test: write miss then read same address.
+		resetMem();
+		writeMem(0, wr, 8'hFF, d_wmiss);
+		readMem(0, rd, d_r_after_wmiss);
+		write_allocate = (d_r_after_wmiss == l1_hit_delay);
+		
+		// Write-through vs write-back heuristic:
+		// If write-hit latency includes lower-level latency, it's likely write-through.
+		resetMem();
+		readMem(0, rd, d_r_miss); // Populate line.
+		writeMem(0, wr, 8'hFF, d_whit);
+		write_through = (d_whit >= l2_path_delay) ? 1 : 0;
+		
+		// Write-buffer heuristic:
+		// If write miss is materially faster than read miss to same cold line, likely buffered.
+		resetMem();
+		readMem(1024, rd, d_r_miss);
+		resetMem();
+		writeMem(1024, wr, 8'hFF, d_wmiss);
+		has_write_buffer = (d_wmiss < d_r_miss) ? 1 : 0;
+	endtask
+	
+	initial begin
+		int ntiers, t0, t1, t2, t3;
+		int l1_blocksize;
+		int ev1, ev2, ev3;
+		int cap1_bytes, cap2_bytes, cap3_bytes;
+		int l1_assoc, l2_assoc, l3_assoc;
+		int l1_repl, l2_repl, l3_repl;
+		int l1_write_allocate, l1_write_through, l1_write_buffer;
+		int l2_hit_time, l3_hit_time, mm_hit_time;
+		int l2_blocksize, l3_blocksize;
+		int l1_num_blocks, l2_num_blocks, l3_num_blocks;
+		
+		dummy_data <= '0;
+		$display("==============================================================");
+		$display("Cache/Memory Profiler (black-box timing inference)");
+		$display("==============================================================");
+		
+		// 1) Discover latency tiers from stack-distance probes.
+		collectDelayTiers(8, ntiers, t0, t1, t2, t3);
+		$display("Observed latency tiers (cycles): count=%0d values={%0d, %0d, %0d, %0d}", ntiers, t0, t1, t2, t3);
+		
+		// 2) L1 blocksize from first offset that loses L1-hit latency.
+		inferL1Blocksize(t0, l1_blocksize);
+		
+		// Re-collect tiers using one-L1-block stride for cleaner transitions.
+		collectDelayTiers(l1_blocksize, ntiers, t0, t1, t2, t3);
+		$display("Refined latency tiers (cycles): count=%0d values={%0d, %0d, %0d, %0d}", ntiers, t0, t1, t2, t3);
+		
+		// 3) Eviction points in # of L1-sized blocks.
+		findEvictionPoint(t0, l1_blocksize, 4096, ev1, delay);
+		if (ntiers > 1) findEvictionPoint(t1, l1_blocksize, 4096, ev2, minval); else begin ev2 = -1; minval = -1; end
+		if (ntiers > 2) findEvictionPoint(t2, l1_blocksize, 4096, ev3, maxval); else begin ev3 = -1; maxval = -1; end
+		
+		l1_num_blocks = (ev1 > 0) ? ev1 : -1;
+		cap1_bytes = (ev1 > 0) ? (ev1 * l1_blocksize) : -1;
+		cap2_bytes = (ev2 > 0) ? (ev2 * l1_blocksize) : -1;
+		cap3_bytes = (ev3 > 0) ? (ev3 * l1_blocksize) : -1;
+		
+		// 4) Per-level hit times from tier differences.
+		l2_hit_time = (ntiers > 1) ? (t1 - t0) : -1;
+		l3_hit_time = (ntiers > 2) ? (t2 - t1) : -1;
+		mm_hit_time = (ntiers > 2) ? (t3 - t2) : ((ntiers > 1) ? (t1 - t0) : -1);
+		
+		// 5) Lower-level blocksize estimates.
+		// Reuse L1 blocksize unless we can confidently infer otherwise.
+		l2_blocksize = l1_blocksize;
+		l3_blocksize = l1_blocksize;
+		l2_num_blocks = (cap2_bytes > 0 && l2_blocksize > 0) ? (cap2_bytes / l2_blocksize) : -1;
+		l3_num_blocks = (cap3_bytes > 0 && l3_blocksize > 0) ? (cap3_bytes / l3_blocksize) : -1;
+		
+		// 6) Associativity + replacement policy guesses.
+		inferAssociativity(t0, cap1_bytes, l1_blocksize, 0, l1_assoc);
+		inferReplacementPolicy(t0, cap1_bytes, l1_blocksize, 0, l1_assoc, l1_repl);
+		
+		if (ntiers > 1 && cap2_bytes > 0) begin
+			inferAssociativity(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc);
+			inferReplacementPolicy(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc, l2_repl);
+		end else begin
+			l2_assoc = -1;
+			l2_repl = -1;
+		end
+		
+		if (ntiers > 2 && cap3_bytes > 0) begin
+			inferAssociativity(t2, cap3_bytes, l1_blocksize, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 4) : 0), l3_assoc);
+			inferReplacementPolicy(t2, cap3_bytes, l1_blocksize, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 4) : 0), l3_assoc, l3_repl);
+		end else begin
+			l3_assoc = -1;
+			l3_repl = -1;
+		end
+		
+		// 7) Write behavior (L1 directly inferred; lower-level fields remain inferred/unknown).
+		inferL1WriteBehavior(t0, (ntiers > 1) ? t1 : t0+1, l1_write_allocate, l1_write_through, l1_write_buffer);
+		
+		$display("");
+		$display("============== Inferred Characteristics ==============");
+		$display("L1 Cache");
+		$display("  Blocksize (Bytes): %0d", l1_blocksize);
+		$display("  Number of Blocks : %0d", l1_num_blocks);
+		$display("  Hit Time (cycles): %0d", t0);
+		$display("  Associativity    : %0d%s", l1_assoc, (l1_assoc == 1) ? " (Direct Mapped)" : "");
+		$display("  Replacement      : %s", (l1_assoc <= 1) ? "Skip (Direct Mapped)" : ((l1_repl == 1) ? "LRU-like" : ((l1_repl == 0) ? "Random-like/other" : "Unknown")));
+		$display("  Write policy     : %s", (l1_write_through == 1) ? "Write-Through (heuristic)" : "Write-Back (heuristic)");
+		$display("  Write allocate   : %s", (l1_write_allocate == 1) ? "Yes" : "No");
+		$display("  Write buffer     : %s", (l1_write_buffer == 1) ? "Likely yes (heuristic)" : "Likely no (heuristic)");
+		
+		$display("L2 Cache");
+		if (ntiers > 1) begin
+			$display("  Blocksize (Bytes): %0d (estimated)", l2_blocksize);
+			$display("  Number of Blocks : %0d (estimated)", l2_num_blocks);
+			$display("  Hit Time (cycles): %0d (tier delta)", l2_hit_time);
+			$display("  Associativity    : %0d (estimated)", l2_assoc);
+			$display("  Replacement      : %s", (l2_assoc <= 1) ? "Skip (Direct Mapped or unknown)" : ((l2_repl == 1) ? "LRU-like (estimated)" : ((l2_repl == 0) ? "Random-like/other (estimated)" : "Unknown")));
+			$display("  Write policy     : Unknown from strict black-box timing");
+			$display("  Write buffer     : Unknown from strict black-box timing");
+		end else begin
+			$display("  Not detected");
+		end
+		
+		$display("L3 Cache");
+		if (ntiers > 2) begin
+			$display("  Is there L3 cache: Yes");
+			$display("  Blocksize (Bytes): %0d (estimated)", l3_blocksize);
+			$display("  Number of Blocks : %0d (estimated)", l3_num_blocks);
+			$display("  Hit Time (cycles): %0d (tier delta)", l3_hit_time);
+			$display("  Associativity    : %0d (estimated)", l3_assoc);
+			$display("  Replacement      : %s", (l3_assoc <= 1) ? "Skip (Direct Mapped or unknown)" : ((l3_repl == 1) ? "LRU-like (estimated)" : ((l3_repl == 0) ? "Random-like/other (estimated)" : "Unknown")));
+			$display("  Write policy     : Unknown from strict black-box timing");
+			$display("  Write buffer     : Unknown from strict black-box timing");
+		end else begin
+			$display("  Is there L3 cache: No (no 3rd cache-latency tier observed)");
+		end
+		
+		$display("Main Memory");
+		$display("  Hit time (cycles): %0d (estimated from slowest tier delta)", mm_hit_time);
+		$display("======================================================");
+		$display("Notes:");
+		$display("  - Fields tagged 'estimated/heuristic' are inferred from timing behavior.");
+		$display("  - L2/L3 write policy and write-buffer presence are not uniquely identifiable");
+		$display("    from top-level timing alone without internal signal visibility.");
+		$display("======================================================");
+		
 		$stop();
 	end
 	
