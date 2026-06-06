@@ -332,6 +332,74 @@ module lab5_testbench ();
 		t3 = (nseen > 3) ? seen[3] : -1;
 	endtask
 	
+	task confirmL3Presence;
+		input int stride_bytes;
+		output int has_l3_confirmed;
+		output int nuniq;
+		output int u0;
+		output int u1;
+		output int u2;
+		output int u3;
+		output int u4;
+		output int u5;
+		
+		int seen[0:15];
+		int nseen, d, sampleN;
+		int ii, jj, tmp, found;
+		
+		nseen = 0;
+		
+		// Broad stack-distance sweep.
+		for (ii=0; ii<=14; ii++) begin
+			if (ii == 0) sampleN = 0;
+			else sampleN = (1 << (ii-1)); // 1..8192
+			probeDelayAfterN(sampleN, stride_bytes, d);
+			found = 0;
+			for (jj=0; jj<nseen; jj++) begin
+				if (seen[jj] == d) found = 1;
+			end
+			if (!found && nseen < 16) begin
+				seen[nseen] = d;
+				nseen = nseen + 1;
+			end
+		end
+		
+		// Fine sweep to catch missing intermediate tiers.
+		for (ii=1; ii<=256; ii=ii+1) begin
+			probeDelayAfterN(ii, stride_bytes, d);
+			found = 0;
+			for (jj=0; jj<nseen; jj++) begin
+				if (seen[jj] == d) found = 1;
+			end
+			if (!found && nseen < 16) begin
+				seen[nseen] = d;
+				nseen = nseen + 1;
+			end
+		end
+		
+		for (ii=0; ii<nseen; ii++) begin
+			for (jj=ii+1; jj<nseen; jj++) begin
+				if (seen[jj] < seen[ii]) begin
+					tmp = seen[ii];
+					seen[ii] = seen[jj];
+					seen[jj] = tmp;
+				end
+			end
+		end
+		
+		nuniq = nseen;
+		u0 = (nseen > 0) ? seen[0] : -1;
+		u1 = (nseen > 1) ? seen[1] : -1;
+		u2 = (nseen > 2) ? seen[2] : -1;
+		u3 = (nseen > 3) ? seen[3] : -1;
+		u4 = (nseen > 4) ? seen[4] : -1;
+		u5 = (nseen > 5) ? seen[5] : -1;
+		
+		// Observable interpretation:
+		// 2 tiers = L1+MM, 3 tiers = L1+L2+MM, 4+ tiers => L3 is observable.
+		has_l3_confirmed = (nseen >= 4) ? 1 : 0;
+	endtask
+	
 	task inferL1Blocksize;
 		input int l1_hit_delay;
 		output int l1_blocksize;
@@ -466,51 +534,104 @@ module lab5_testbench ();
 		end
 	endtask
 	
-	task inferL1WriteBehavior;
-		input int l1_hit_delay;
-		input int l2_path_delay;
-		output int write_allocate; // 1/0
-		output int write_through;  // 1/0 (heuristic)
-		output int has_write_buffer; // 1/0 (heuristic)
+	task prepLevelHit;
+		input int target_addr;
+		input int upper_evict_blocks;
+		input int l1_blocksize;
+		output int observed_delay;
+		int j, junk;
+		logic [DATA_WIDTH-1:0][7:0] rd;
 		
-		int d_whit, d_wmiss, d_r_after_wmiss, d_r_miss;
+		readMem(target_addr, rd, junk); // Bring into hierarchy.
+		for (j=1; j<=upper_evict_blocks; j++) begin
+			readMem((32768 + j*l1_blocksize), rd, junk); // Evict upper levels.
+		end
+		readMem(target_addr, rd, observed_delay); // Should now reflect target-level hit path.
+	endtask
+	
+	task inferWriteBehaviorAtLevel;
+		input int target_addr;
+		input int upper_evict_blocks;
+		input int l1_blocksize;
+		input int read_tier_delay;
+		output int write_policy;      // 1: write-through, 0: write-back
+		output int has_write_buffer;  // 1: yes, 0: no
+		output int e_rhit;
+		output int e_whit;
+		output int e_rmiss;
+		output int e_wmiss;
+		
+		int junk;
 		logic [DATA_WIDTH-1:0][7:0] rd, wr;
 		
-		wr = 64'h01234567_89ABCDEF;
+		wr = 64'h01234567_89ABCDEF ^ target_addr;
 		
-		// Write-allocate test: write miss then read same address.
+		// Read-hit style access for this level.
 		resetMem();
-		writeMem(0, wr, 8'hFF, d_wmiss);
-		readMem(0, rd, d_r_after_wmiss);
-		write_allocate = (d_r_after_wmiss == l1_hit_delay);
+		prepLevelHit(target_addr, upper_evict_blocks, l1_blocksize, e_rhit);
 		
-		// Write-through vs write-back heuristic:
-		// If write-hit latency includes lower-level latency, it's likely write-through.
+		// Write-hit style access for this level.
 		resetMem();
-		readMem(0, rd, d_r_miss); // Populate line.
-		writeMem(0, wr, 8'hFF, d_whit);
-		write_through = (d_whit >= l2_path_delay) ? 1 : 0;
+		readMem(target_addr, rd, junk);
+		for (junk=1; junk<=upper_evict_blocks; junk++) begin
+			readMem((32768 + junk*l1_blocksize), rd, e_rmiss);
+		end
+		writeMem(target_addr, wr, 8'hFF, e_whit);
 		
-		// Write-buffer heuristic:
-		// If write miss is materially faster than read miss to same cold line, likely buffered.
+		// Cold read/write miss evidence at same region.
 		resetMem();
-		readMem(1024, rd, d_r_miss);
+		readMem(target_addr + 8192, rd, e_rmiss);
 		resetMem();
-		writeMem(1024, wr, 8'hFF, d_wmiss);
-		has_write_buffer = (d_wmiss < d_r_miss) ? 1 : 0;
+		writeMem(target_addr + 8192, wr, 8'hFF, e_wmiss);
+		
+		// If write-hit includes clear extra lower-level latency, treat as write-through.
+		write_policy = (e_whit > e_rhit) ? 1 : 0;
+		
+		// If writes return faster than corresponding cold reads, likely buffered.
+		has_write_buffer = (e_wmiss < e_rmiss) ? 1 : 0;
+		
+		// Guard fallback: never leave uninitialized semantic values.
+		if (!(write_policy == 0 || write_policy == 1))
+			write_policy = 0;
+		if (!(has_write_buffer == 0 || has_write_buffer == 1))
+			has_write_buffer = 0;
+	endtask
+	
+	task inferL1WriteAllocate;
+		input int l1_hit_delay;
+		output int write_allocate; // 1/0
+		output int e_write_miss;
+		output int e_read_after_write;
+		
+		logic [DATA_WIDTH-1:0][7:0] rd, wr;
+		wr = 64'h00112233_44556677;
+		
+		resetMem();
+		writeMem(0, wr, 8'hFF, e_write_miss);
+		readMem(0, rd, e_read_after_write);
+		write_allocate = (e_read_after_write == l1_hit_delay);
 	endtask
 	
 	initial begin
 		int ntiers, t0, t1, t2, t3;
+		int l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5, l3_confirm;
 		int l1_blocksize;
 		int ev1, ev2, ev3;
 		int cap1_bytes, cap2_bytes, cap3_bytes;
 		int l1_assoc, l2_assoc, l3_assoc;
 		int l1_repl, l2_repl, l3_repl;
 		int l1_write_allocate, l1_write_through, l1_write_buffer;
+		int l2_write_through, l2_write_buffer;
+		int l3_write_through, l3_write_buffer;
 		int l2_hit_time, l3_hit_time, mm_hit_time;
 		int l2_blocksize, l3_blocksize;
 		int l1_num_blocks, l2_num_blocks, l3_num_blocks;
+		int has_l2, has_l3;
+		int l1_repl_code, l2_repl_code, l3_repl_code;
+		int e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss;
+		int e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss;
+		int e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss;
+		int e_l1_wa_wmiss, e_l1_r_after_w;
 		
 		dummy_data <= '0;
 		$display("==============================================================");
@@ -538,40 +659,81 @@ module lab5_testbench ();
 		cap2_bytes = (ev2 > 0) ? (ev2 * l1_blocksize) : -1;
 		cap3_bytes = (ev3 > 0) ? (ev3 * l1_blocksize) : -1;
 		
-		// 4) Per-level hit times from tier differences.
-		l2_hit_time = (ntiers > 1) ? (t1 - t0) : -1;
-		l3_hit_time = (ntiers > 2) ? (t2 - t1) : -1;
-		mm_hit_time = (ntiers > 2) ? (t3 - t2) : ((ntiers > 1) ? (t1 - t0) : -1);
+		// 4) Determine level presence from number of timing tiers.
+		// tiers = [L1, L2?, L3?, MM-path]
+		has_l2 = (ntiers >= 3) ? 1 : 0;
+		has_l3 = (ntiers >= 4) ? 1 : 0;
 		
-		// 5) Lower-level blocksize estimates.
+		// Independent L3 confirmation pass for robustness.
+		confirmL3Presence(l1_blocksize, l3_confirm, l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5);
+		has_l3 = l3_confirm;
+		
+		// 5) Per-level hit times from adjacent tier deltas.
+		l2_hit_time = has_l2 ? (t1 - t0) : 0;
+		l3_hit_time = has_l3 ? (t2 - t1) : 0;
+		if (has_l3) mm_hit_time = t3 - t2;
+		else if (has_l2) mm_hit_time = t2 - t1;
+		else if (ntiers >= 2) mm_hit_time = t1 - t0;
+		else mm_hit_time = t0;
+		if (mm_hit_time < 0) mm_hit_time = 0;
+		
+		// 6) Lower-level blocksize estimates.
 		// Reuse L1 blocksize unless we can confidently infer otherwise.
 		l2_blocksize = l1_blocksize;
 		l3_blocksize = l1_blocksize;
-		l2_num_blocks = (cap2_bytes > 0 && l2_blocksize > 0) ? (cap2_bytes / l2_blocksize) : -1;
-		l3_num_blocks = (cap3_bytes > 0 && l3_blocksize > 0) ? (cap3_bytes / l3_blocksize) : -1;
+		l2_num_blocks = (has_l2 && cap2_bytes > 0 && l2_blocksize > 0) ? (cap2_bytes / l2_blocksize) : 0;
+		l3_num_blocks = (has_l3 && cap3_bytes > 0 && l3_blocksize > 0) ? (cap3_bytes / l3_blocksize) : 0;
+		if (l1_num_blocks < 0) l1_num_blocks = 0;
+		if (l2_num_blocks < 0) l2_num_blocks = 0;
+		if (l3_num_blocks < 0) l3_num_blocks = 0;
 		
-		// 6) Associativity + replacement policy guesses.
+		// 7) Associativity + replacement policy guesses.
 		inferAssociativity(t0, cap1_bytes, l1_blocksize, 0, l1_assoc);
 		inferReplacementPolicy(t0, cap1_bytes, l1_blocksize, 0, l1_assoc, l1_repl);
 		
-		if (ntiers > 1 && cap2_bytes > 0) begin
+		if (has_l2 && cap2_bytes > 0) begin
 			inferAssociativity(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc);
 			inferReplacementPolicy(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc, l2_repl);
 		end else begin
-			l2_assoc = -1;
+			l2_assoc = 1;
 			l2_repl = -1;
 		end
 		
-		if (ntiers > 2 && cap3_bytes > 0) begin
+		if (has_l3 && cap3_bytes > 0) begin
 			inferAssociativity(t2, cap3_bytes, l1_blocksize, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 4) : 0), l3_assoc);
 			inferReplacementPolicy(t2, cap3_bytes, l1_blocksize, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 4) : 0), l3_assoc, l3_repl);
 		end else begin
-			l3_assoc = -1;
+			l3_assoc = 1;
 			l3_repl = -1;
 		end
+		if (l1_assoc < 1) l1_assoc = 1;
+		if (l2_assoc < 1) l2_assoc = 1;
+		if (l3_assoc < 1) l3_assoc = 1;
 		
-		// 7) Write behavior (L1 directly inferred; lower-level fields remain inferred/unknown).
-		inferL1WriteBehavior(t0, (ntiers > 1) ? t1 : t0+1, l1_write_allocate, l1_write_through, l1_write_buffer);
+		// Normalize replacement coding to table format: 1=LRU, 0=Random.
+		l1_repl_code = (l1_assoc == 1) ? 1 : ((l1_repl == 1) ? 1 : 0);
+		l2_repl_code = (l2_assoc == 1) ? 1 : ((l2_repl == 1) ? 1 : 0);
+		l3_repl_code = (l3_assoc == 1) ? 1 : ((l3_repl == 1) ? 1 : 0);
+		
+		// 8) Write behavior with evidence delays.
+		inferL1WriteAllocate(t0, l1_write_allocate, e_l1_wa_wmiss, e_l1_r_after_w);
+		inferWriteBehaviorAtLevel(0, 0, l1_blocksize, t0, l1_write_through, l1_write_buffer, e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss);
+		
+		if (has_l2) begin
+			inferWriteBehaviorAtLevel(0, (ev1 > 0) ? (ev1 + 4) : 16, l1_blocksize, t1, l2_write_through, l2_write_buffer, e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss);
+		end else begin
+			l2_write_through = 0;
+			l2_write_buffer = 0;
+			e_l2_rhit = 0; e_l2_whit = 0; e_l2_rmiss = 0; e_l2_wmiss = 0;
+		end
+		
+		if (has_l3) begin
+			inferWriteBehaviorAtLevel(0, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 16) : 64), l1_blocksize, t2, l3_write_through, l3_write_buffer, e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss);
+		end else begin
+			l3_write_through = 0;
+			l3_write_buffer = 0;
+			e_l3_rhit = 0; e_l3_whit = 0; e_l3_rmiss = 0; e_l3_wmiss = 0;
+		end
 		
 		$display("");
 		$display("============== Inferred Characteristics ==============");
@@ -579,46 +741,43 @@ module lab5_testbench ();
 		$display("  Blocksize (Bytes): %0d", l1_blocksize);
 		$display("  Number of Blocks : %0d", l1_num_blocks);
 		$display("  Hit Time (cycles): %0d", t0);
-		$display("  Associativity    : %0d%s", l1_assoc, (l1_assoc == 1) ? " (Direct Mapped)" : "");
-		$display("  Replacement      : %s", (l1_assoc <= 1) ? "Skip (Direct Mapped)" : ((l1_repl == 1) ? "LRU-like" : ((l1_repl == 0) ? "Random-like/other" : "Unknown")));
-		$display("  Write policy     : %s", (l1_write_through == 1) ? "Write-Through (heuristic)" : "Write-Back (heuristic)");
-		$display("  Write allocate   : %s", (l1_write_allocate == 1) ? "Yes" : "No");
-		$display("  Write buffer     : %s", (l1_write_buffer == 1) ? "Likely yes (heuristic)" : "Likely no (heuristic)");
+		$display("  Associativity    : %0d", l1_assoc);
+		$display("  Replacement (1=LRU,0=Random): %0d", l1_repl_code);
+		$display("  Write policy (1=WT,0=WB)    : %0d", l1_write_through);
+		$display("  Write allocate (1=yes,0=no) : %0d", l1_write_allocate);
+		$display("  Write buffer (1=yes,0=no)   : %0d", l1_write_buffer);
+		$display("    Evidence L1: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss);
+		$display("    Evidence WA: write_miss=%0d read_after_write=%0d", e_l1_wa_wmiss, e_l1_r_after_w);
 		
 		$display("L2 Cache");
-		if (ntiers > 1) begin
-			$display("  Blocksize (Bytes): %0d (estimated)", l2_blocksize);
-			$display("  Number of Blocks : %0d (estimated)", l2_num_blocks);
-			$display("  Hit Time (cycles): %0d (tier delta)", l2_hit_time);
-			$display("  Associativity    : %0d (estimated)", l2_assoc);
-			$display("  Replacement      : %s", (l2_assoc <= 1) ? "Skip (Direct Mapped or unknown)" : ((l2_repl == 1) ? "LRU-like (estimated)" : ((l2_repl == 0) ? "Random-like/other (estimated)" : "Unknown")));
-			$display("  Write policy     : Unknown from strict black-box timing");
-			$display("  Write buffer     : Unknown from strict black-box timing");
-		end else begin
-			$display("  Not detected");
-		end
+		$display("  Blocksize (Bytes): %0d", has_l2 ? l2_blocksize : 0);
+		$display("  Number of Blocks : %0d", has_l2 ? l2_num_blocks : 0);
+		$display("  Hit Time (cycles): %0d", l2_hit_time);
+		$display("  Associativity    : %0d", has_l2 ? l2_assoc : 0);
+		$display("  Replacement (1=LRU,0=Random): %0d", has_l2 ? l2_repl_code : 0);
+		$display("  Write policy (1=WT,0=WB)    : %0d", has_l2 ? l2_write_through : 0);
+		$display("  Write buffer (1=yes,0=no)   : %0d", has_l2 ? l2_write_buffer : 0);
+		$display("    Evidence L2: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss);
 		
 		$display("L3 Cache");
-		if (ntiers > 2) begin
-			$display("  Is there L3 cache: Yes");
-			$display("  Blocksize (Bytes): %0d (estimated)", l3_blocksize);
-			$display("  Number of Blocks : %0d (estimated)", l3_num_blocks);
-			$display("  Hit Time (cycles): %0d (tier delta)", l3_hit_time);
-			$display("  Associativity    : %0d (estimated)", l3_assoc);
-			$display("  Replacement      : %s", (l3_assoc <= 1) ? "Skip (Direct Mapped or unknown)" : ((l3_repl == 1) ? "LRU-like (estimated)" : ((l3_repl == 0) ? "Random-like/other (estimated)" : "Unknown")));
-			$display("  Write policy     : Unknown from strict black-box timing");
-			$display("  Write buffer     : Unknown from strict black-box timing");
-		end else begin
-			$display("  Is there L3 cache: No (no 3rd cache-latency tier observed)");
-		end
+		$display("  Is there L3 cache (1=yes,0=no): %0d", has_l3);
+		$display("  Blocksize (Bytes): %0d", has_l3 ? l3_blocksize : 0);
+		$display("  Number of Blocks : %0d", has_l3 ? l3_num_blocks : 0);
+		$display("  Hit Time (cycles): %0d", l3_hit_time);
+		$display("  Associativity    : %0d", has_l3 ? l3_assoc : 0);
+		$display("  Replacement (1=LRU,0=Random): %0d", has_l3 ? l3_repl_code : 0);
+		$display("  Write policy (1=WT,0=WB)    : %0d", has_l3 ? l3_write_through : 0);
+		$display("  Write buffer (1=yes,0=no)   : %0d", has_l3 ? l3_write_buffer : 0);
+		$display("    Evidence L3: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss);
 		
 		$display("Main Memory");
-		$display("  Hit time (cycles): %0d (estimated from slowest tier delta)", mm_hit_time);
+		$display("  Hit time (cycles): %0d", mm_hit_time);
 		$display("======================================================");
-		$display("Notes:");
-		$display("  - Fields tagged 'estimated/heuristic' are inferred from timing behavior.");
-		$display("  - L2/L3 write policy and write-buffer presence are not uniquely identifiable");
-		$display("    from top-level timing alone without internal signal visibility.");
+		$display("Evidence summary:");
+		$display("  Tier delays: t0=%0d t1=%0d t2=%0d t3=%0d ntiers=%0d", t0, t1, t2, t3, ntiers);
+		$display("  L3 confirm sweep: has_l3=%0d unique=%0d vals={%0d,%0d,%0d,%0d,%0d,%0d}", l3_confirm, l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5);
+		$display("  Eviction points (#blocks): L1=%0d L2=%0d L3=%0d", ev1, ev2, ev3);
+		$display("  Capacities (bytes): L1=%0d L2=%0d L3=%0d", cap1_bytes, cap2_bytes, cap3_bytes);
 		$display("======================================================");
 		
 		$stop();
