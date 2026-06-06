@@ -710,7 +710,8 @@ module lab5_testbench ();
 		output int e_l2_capacity_probe;
 		output int e_l2_assoc_probe;
 		
-		int j, n, k, off, miss_thresh, candidate;
+		int j, n, k, off, miss_thresh;
+		int allhit, pass;
 		int d, dprobe;
 		int stride_conflict;
 		logic [DATA_WIDTH-1:0][7:0] rd;
@@ -725,21 +726,20 @@ module lab5_testbench ();
 		
 		$display("  [L2 probe] l2_path_delay(t1)=%0d upper_next=%0d miss_thresh=%0d", l2_path_delay, upper_next_delay, miss_thresh);
 		
-		// ---- L2 blocksize (strictly L1-evicted probes) ----
-		// Prime block 0 into L2, evict ONLY L1, then read neighbors of 0. Every
-		// neighbor inside 0's L2 block is an L2 hit (= l2_path_delay). The first
-		// offset that misses marks the L2 block boundary => that offset IS the
-		// L2 blocksize. This is assumption-free (pure spatial locality).
+		// ---- L2 blocksize (pure spatial-locality test, no eviction pollution) ----
+		// Prime block 0 into L2, then read a COLD neighbor of 0. A cold address is
+		// already an L1 miss, so its latency reflects L2: it is an L2 hit (= t1) if
+		// it lies inside 0's L2 block, or an L2 miss if it crossed the block
+		// boundary. The first offset that misses IS the L2 blocksize.
+		// (No separate L1-eviction loop: it is unnecessary here and only risks
+		//  kicking block 0 out of L2 before we probe.)
 		$display("  [L2 blocksize sweep] (hit<=%0d means same L2 block as addr 0)", miss_thresh);
 		l2_blocksize_out = 0;
 		e_l2_bsize_probe = -1;
 		for (off = l1_blocksize; off <= 1024; off = off + l1_blocksize) begin
 			resetMem();
-			readMem(0, rd, d); // Prime base block.
-			for (j=1; j<=l1_num_blocks+8; j++) begin
-				readMem((262144 + j*l1_blocksize), rd, d); // Evict L1 only (far region, off-set-0).
-			end
-			readMem(off, rd, dprobe);
+			readMem(0, rd, d);        // Prime block 0 (fills its L2 line).
+			readMem(off, rd, dprobe); // Cold => L1 miss; L2 hit iff inside 0's block.
 			$display("    off=%0d  delay=%0d  %s", off, dprobe, (dprobe > miss_thresh) ? "MISS (new L2 block)" : "hit (same L2 block)");
 			if (dprobe > miss_thresh) begin
 				l2_blocksize_out = off;
@@ -751,9 +751,11 @@ module lab5_testbench ();
 		$display("  [L2 blocksize] measured = %0d bytes", l2_blocksize_out);
 		
 		// ---- L2 number of blocks (total capacity in blocks) ----
-		// Touch N distinct L2 blocks (stride = measured L2 blocksize), evict L1,
-		// then re-probe block 0. Block 0 (oldest) survives until the cache is full;
-		// the first N that makes block 0 miss equals the total number of blocks.
+		// Touch N distinct CONSECUTIVE L2 blocks (stride = measured blocksize).
+		// The sequential fill itself evicts block 0 from L1 (block #L1_num_blocks
+		// collides with it), so the final probe of block 0 is a true L1 miss with
+		// NO extra eviction traffic polluting L2. Under LRU, block 0 (oldest) is
+		// evicted exactly when N exceeds the total number of blocks.
 		l2_num_blocks_out = 0;
 		e_l2_capacity_probe = -1;
 		for (n = 1; n <= 2048; n = n + 1) begin
@@ -761,10 +763,7 @@ module lab5_testbench ();
 			for (j = 0; j < n; j++) begin
 				readMem(j*l2_blocksize_out, rd, d);
 			end
-			for (j=1; j<=l1_num_blocks+8; j++) begin
-				readMem((393216 + j*l1_blocksize), rd, d); // Evict L1 before probe.
-			end
-			readMem(0, rd, dprobe);
+			readMem(0, rd, dprobe); // L1 miss (evicted by the fill); hits L2 iff still resident.
 			if (dprobe > miss_thresh) begin
 				l2_num_blocks_out = n - 1;
 				e_l2_capacity_probe = dprobe;
@@ -775,29 +774,39 @@ module lab5_testbench ();
 		if (l2_num_blocks_out < 2) l2_num_blocks_out = 2;
 		$display("  [L2 num_blocks] measured = %0d  => capacity = %0d bytes", l2_num_blocks_out, l2_num_blocks_out*l2_blocksize_out);
 		
-		// ---- L2 associativity ----
-		// Stride = capacity (num_blocks * blocksize) guarantees every access maps
-		// to the SAME set (set 0) for any associativity. Touch addr 0, then k
-		// conflicting blocks; addr 0 is evicted exactly when k == associativity.
+		// ---- L2 associativity (co-residence test, robust to LRU AND random) ----
+		// Conflict stride = capacity => every access maps to the SAME L2 set, and
+		// (since capacity is a multiple of the L1 capacity) the same accesses also
+		// collide in L1, so every probe read is a true L1 miss with no extra
+		// pollution. We find the largest number of same-set blocks that can be
+		// CO-RESIDENT: load 'k' same-set blocks (two warm-up passes to reach steady
+		// state), then verify all 'k' still hit. The largest such 'k' is the number
+		// of ways. Co-residence holds for LRU and random alike: once k<=assoc blocks
+		// are resident, accessing only those blocks produces hits and never evicts.
 		l2_assoc_out = 1;
 		e_l2_assoc_probe = -1;
 		stride_conflict = l2_num_blocks_out * l2_blocksize_out;
 		$display("  [L2 assoc sweep] conflict stride = %0d (all map to one set)", stride_conflict);
-		for (k = 1; k <= 128; k = k + 1) begin
+		for (k = 2; k <= 256; k = k + 1) begin
 			resetMem();
-			readMem(0, rd, d);
-			for (j = 1; j <= k; j++) begin
-				readMem(j*stride_conflict, rd, d);
+			// Two warm-up passes over the k same-set blocks to reach steady state.
+			for (pass = 0; pass < 2; pass++) begin
+				for (j = 0; j < k; j++) begin
+					readMem(j*stride_conflict, rd, d);
+				end
 			end
-			for (j=1; j<=l1_num_blocks+8; j++) begin
-				readMem((524288 + j*l1_blocksize), rd, d); // Evict L1 before probe.
+			// Verify co-residence: every probe is an L1 miss (same L1 set), so a
+			// hit means the block is still resident in the L2 set.
+			allhit = 1;
+			for (j = 0; j < k; j++) begin
+				readMem(j*stride_conflict, rd, dprobe);
+				if (dprobe > miss_thresh) allhit = 0;
 			end
-			readMem(0, rd, dprobe);
-			if (dprobe > miss_thresh) begin
-				l2_assoc_out = k;
+			if (!allhit) begin
+				l2_assoc_out = k - 1; // k same-set blocks don't fit => assoc = k-1.
 				e_l2_assoc_probe = dprobe;
-				$display("    [L2 assoc] addr 0 evicted after %0d same-set conflicts (delay=%0d) => %0d-way", k, dprobe, k);
-				k = 256; // exit
+				$display("    [L2 assoc] %0d same-set blocks do NOT all stay resident => assoc = %0d", k, k-1);
+				k = 512; // exit
 			end
 		end
 		if (l2_assoc_out < 1) l2_assoc_out = 1;
