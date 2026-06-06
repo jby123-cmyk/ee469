@@ -698,6 +698,90 @@ module lab5_testbench ();
 		write_allocate = (e_read_after_write == l1_hit_delay);
 	endtask
 	
+	task inferL2GeometryIsolated;
+		input int l1_blocksize;
+		input int l1_num_blocks;
+		input int l2_path_delay;
+		input int upper_next_delay;
+		output int l2_blocksize_out;
+		output int l2_num_blocks_out;
+		output int l2_assoc_out;
+		output int e_l2_bsize_probe;
+		output int e_l2_capacity_probe;
+		output int e_l2_assoc_probe;
+		
+		int j, n, k, off, miss_thresh, candidate;
+		int d, dprobe;
+		int stride_conflict;
+		logic [DATA_WIDTH-1:0][7:0] rd;
+		
+		// Threshold between L2-hit path and slower paths.
+		if (upper_next_delay > l2_path_delay)
+			miss_thresh = (l2_path_delay + upper_next_delay) / 2;
+		else
+			miss_thresh = l2_path_delay + 2;
+		
+		// ---- L2 blocksize (strictly L1-evicted probes) ----
+		l2_blocksize_out = 0;
+		e_l2_bsize_probe = -1;
+		for (off = l1_blocksize; off <= 1024; off = off + l1_blocksize) begin
+			resetMem();
+			readMem(0, rd, d); // Prime base block.
+			for (j=1; j<=l1_num_blocks+8; j++) begin
+				readMem((262144 + j*l1_blocksize), rd, d); // Evict L1 only.
+			end
+			readMem(off, rd, dprobe);
+			if (dprobe > miss_thresh) begin
+				l2_blocksize_out = off;
+				e_l2_bsize_probe = dprobe;
+				off = 2048; // exit
+			end
+		end
+		if (l2_blocksize_out == 0) l2_blocksize_out = l1_blocksize;
+		
+		// ---- L2 number of blocks ----
+		l2_num_blocks_out = 0;
+		e_l2_capacity_probe = -1;
+		for (n = 1; n <= 2048; n = n + 1) begin
+			resetMem();
+			for (j = 0; j < n; j++) begin
+				readMem(j*l2_blocksize_out, rd, d);
+			end
+			for (j=1; j<=l1_num_blocks+8; j++) begin
+				readMem((393216 + j*l1_blocksize), rd, d); // Evict L1 before probe.
+			end
+			readMem(0, rd, dprobe);
+			if (dprobe > miss_thresh) begin
+				l2_num_blocks_out = n - 1;
+				e_l2_capacity_probe = dprobe;
+				n = 4096; // exit
+			end
+		end
+		if (l2_num_blocks_out < 2) l2_num_blocks_out = 2;
+		
+		// ---- L2 associativity ----
+		l2_assoc_out = 1;
+		e_l2_assoc_probe = -1;
+		stride_conflict = l2_num_blocks_out * l2_blocksize_out;
+		for (k = 1; k <= 128; k = k + 1) begin
+			resetMem();
+			readMem(0, rd, d);
+			for (j = 1; j <= k; j++) begin
+				readMem(j*stride_conflict, rd, d);
+			end
+			for (j=1; j<=l1_num_blocks+8; j++) begin
+				readMem((524288 + j*l1_blocksize), rd, d); // Evict L1 before probe.
+			end
+			readMem(0, rd, dprobe);
+			if (dprobe > miss_thresh) begin
+				l2_assoc_out = k;
+				e_l2_assoc_probe = dprobe;
+				k = 256; // exit
+			end
+		end
+		if (l2_assoc_out < 1) l2_assoc_out = 1;
+	endtask
+	
 	initial begin
 		int ntiers, t0, t1, t2, t3;
 		int l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5, l3_confirm;
@@ -724,6 +808,7 @@ module lab5_testbench ();
 		int p_l1_wtrigger, p_l1_follow_hit, p_l1_follow_miss, p_l1_miss_base;
 		int p_l2_wtrigger, p_l2_follow_hit, p_l2_follow_miss, p_l2_miss_base;
 		int p_l3_wtrigger, p_l3_follow_hit, p_l3_follow_miss, p_l3_miss_base;
+		int e_l2_bsize_probe, e_l2_capacity_probe, e_l2_assoc_probe;
 		
 		dummy_data <= '0;
 		$display("==============================================================");
@@ -769,15 +854,34 @@ module lab5_testbench ();
 		else mm_hit_time = t0;
 		if (mm_hit_time < 0) mm_hit_time = 0;
 		
-		// 6) Lower-level blocksize estimates.
-		// Reuse L1 blocksize unless we can confidently infer otherwise.
-		l2_blocksize = l1_blocksize;
+		// 6) Lower-level geometry estimates.
+		l2_blocksize = 0;
 		l3_blocksize = l1_blocksize;
-		l2_num_blocks = (has_l2 && cap2_bytes > 0 && l2_blocksize > 0) ? (cap2_bytes / l2_blocksize) : 0;
+		l2_num_blocks = 0;
 		l3_num_blocks = (has_l3 && cap3_bytes > 0 && l3_blocksize > 0) ? (cap3_bytes / l3_blocksize) : 0;
 		if (l1_num_blocks < 0) l1_num_blocks = 0;
 		if (l2_num_blocks < 0) l2_num_blocks = 0;
 		if (l3_num_blocks < 0) l3_num_blocks = 0;
+		
+		// Strict L2-isolated probe (overrides heuristic L2 defaults).
+		if (has_l2) begin
+			inferL2GeometryIsolated(
+				l1_blocksize,
+				(l1_num_blocks > 0) ? l1_num_blocks : 16,
+				t1,
+				has_l3 ? t2 : t3,
+				l2_blocksize,
+				l2_num_blocks,
+				l2_assoc,
+				e_l2_bsize_probe,
+				e_l2_capacity_probe,
+				e_l2_assoc_probe
+			);
+		end else begin
+			e_l2_bsize_probe = -1;
+			e_l2_capacity_probe = -1;
+			e_l2_assoc_probe = -1;
+		end
 		
 		// 6b) Geometry sanity pass (force physically valid concrete values).
 		geom_sanitized = 0;
@@ -804,7 +908,7 @@ module lab5_testbench ();
 		
 		if (has_l2) begin
 			if (l2_blocksize < 8) begin
-				l2_blocksize = l1_blocksize;
+				l2_blocksize = 8;
 				geom_sanitized = 1;
 			end
 			if (!isPow2(l2_blocksize)) begin
@@ -852,6 +956,7 @@ module lab5_testbench ();
 		// - total capacity increases down hierarchy
 		// - associativity nondecreasing down hierarchy (enforced later)
 		if (has_l2 && l2_blocksize < l1_blocksize) begin
+			// Keep L2 measured geometry; don't force equal-to-L1.
 			l2_blocksize = l1_blocksize;
 			geom_sanitized = 1;
 		end
@@ -884,9 +989,9 @@ module lab5_testbench ();
 		inferAssociativity(t0, cap1_bytes, l1_blocksize, 0, l1_assoc);
 		inferReplacementPolicy(t0, cap1_bytes, l1_blocksize, 0, l1_assoc, l1_repl);
 		
-		if (has_l2 && cap2_bytes > 0) begin
-			inferAssociativity(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc);
-			inferReplacementPolicy(t1, cap2_bytes, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc, l2_repl);
+		if (has_l2) begin
+			// Re-check replacement using measured L2 geometry.
+			inferReplacementPolicy(t1, l2_num_blocks * l2_blocksize, l1_blocksize, (ev1 > 0) ? (ev1 + 4) : 0, l2_assoc, l2_repl);
 		end else begin
 			l2_assoc = 1;
 			l2_repl = -1;
@@ -1010,6 +1115,7 @@ module lab5_testbench ();
 		$display("======================================================");
 		$display("Evidence summary:");
 		$display("  Tier delays: t0=%0d t1=%0d t2=%0d t3=%0d ntiers=%0d", t0, t1, t2, t3, ntiers);
+		$display("  L2 isolated probes: bsize_delay=%0d cap_delay=%0d assoc_delay=%0d", e_l2_bsize_probe, e_l2_capacity_probe, e_l2_assoc_probe);
 		$display("  L3 confirm sweep: has_l3=%0d unique=%0d vals={%0d,%0d,%0d,%0d,%0d,%0d}", l3_confirm, l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5);
 		$display("  Eviction points (#blocks): L1=%0d L2=%0d L3=%0d", ev1, ev2, ev3);
 		$display("  Capacities (bytes): L1=%0d L2=%0d L3=%0d", cap1_bytes, cap2_bytes, cap3_bytes);
