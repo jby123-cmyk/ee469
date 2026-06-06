@@ -716,21 +716,31 @@ module lab5_testbench ();
 		logic [DATA_WIDTH-1:0][7:0] rd;
 		
 		// Threshold between L2-hit path and slower paths.
+		// An L1-miss/L2-hit costs l2_path_delay. Anything beyond that (L3 or MM)
+		// is "miss". Put the line just above l2_path_delay so any real jump trips it.
 		if (upper_next_delay > l2_path_delay)
 			miss_thresh = (l2_path_delay + upper_next_delay) / 2;
 		else
 			miss_thresh = l2_path_delay + 2;
 		
+		$display("  [L2 probe] l2_path_delay(t1)=%0d upper_next=%0d miss_thresh=%0d", l2_path_delay, upper_next_delay, miss_thresh);
+		
 		// ---- L2 blocksize (strictly L1-evicted probes) ----
+		// Prime block 0 into L2, evict ONLY L1, then read neighbors of 0. Every
+		// neighbor inside 0's L2 block is an L2 hit (= l2_path_delay). The first
+		// offset that misses marks the L2 block boundary => that offset IS the
+		// L2 blocksize. This is assumption-free (pure spatial locality).
+		$display("  [L2 blocksize sweep] (hit<=%0d means same L2 block as addr 0)", miss_thresh);
 		l2_blocksize_out = 0;
 		e_l2_bsize_probe = -1;
 		for (off = l1_blocksize; off <= 1024; off = off + l1_blocksize) begin
 			resetMem();
 			readMem(0, rd, d); // Prime base block.
 			for (j=1; j<=l1_num_blocks+8; j++) begin
-				readMem((262144 + j*l1_blocksize), rd, d); // Evict L1 only.
+				readMem((262144 + j*l1_blocksize), rd, d); // Evict L1 only (far region, off-set-0).
 			end
 			readMem(off, rd, dprobe);
+			$display("    off=%0d  delay=%0d  %s", off, dprobe, (dprobe > miss_thresh) ? "MISS (new L2 block)" : "hit (same L2 block)");
 			if (dprobe > miss_thresh) begin
 				l2_blocksize_out = off;
 				e_l2_bsize_probe = dprobe;
@@ -738,8 +748,12 @@ module lab5_testbench ();
 			end
 		end
 		if (l2_blocksize_out == 0) l2_blocksize_out = l1_blocksize;
+		$display("  [L2 blocksize] measured = %0d bytes", l2_blocksize_out);
 		
-		// ---- L2 number of blocks ----
+		// ---- L2 number of blocks (total capacity in blocks) ----
+		// Touch N distinct L2 blocks (stride = measured L2 blocksize), evict L1,
+		// then re-probe block 0. Block 0 (oldest) survives until the cache is full;
+		// the first N that makes block 0 miss equals the total number of blocks.
 		l2_num_blocks_out = 0;
 		e_l2_capacity_probe = -1;
 		for (n = 1; n <= 2048; n = n + 1) begin
@@ -754,15 +768,21 @@ module lab5_testbench ();
 			if (dprobe > miss_thresh) begin
 				l2_num_blocks_out = n - 1;
 				e_l2_capacity_probe = dprobe;
+				$display("    [L2 capacity] block 0 evicted after touching %0d distinct blocks (delay=%0d)", n, dprobe);
 				n = 4096; // exit
 			end
 		end
 		if (l2_num_blocks_out < 2) l2_num_blocks_out = 2;
+		$display("  [L2 num_blocks] measured = %0d  => capacity = %0d bytes", l2_num_blocks_out, l2_num_blocks_out*l2_blocksize_out);
 		
 		// ---- L2 associativity ----
+		// Stride = capacity (num_blocks * blocksize) guarantees every access maps
+		// to the SAME set (set 0) for any associativity. Touch addr 0, then k
+		// conflicting blocks; addr 0 is evicted exactly when k == associativity.
 		l2_assoc_out = 1;
 		e_l2_assoc_probe = -1;
 		stride_conflict = l2_num_blocks_out * l2_blocksize_out;
+		$display("  [L2 assoc sweep] conflict stride = %0d (all map to one set)", stride_conflict);
 		for (k = 1; k <= 128; k = k + 1) begin
 			resetMem();
 			readMem(0, rd, d);
@@ -776,10 +796,12 @@ module lab5_testbench ();
 			if (dprobe > miss_thresh) begin
 				l2_assoc_out = k;
 				e_l2_assoc_probe = dprobe;
+				$display("    [L2 assoc] addr 0 evicted after %0d same-set conflicts (delay=%0d) => %0d-way", k, dprobe, k);
 				k = 256; // exit
 			end
 		end
 		if (l2_assoc_out < 1) l2_assoc_out = 1;
+		$display("  [L2 assoc] measured = %0d-way  (sets = %0d)", l2_assoc_out, (l2_assoc_out > 0) ? (l2_num_blocks_out / l2_assoc_out) : 0);
 	endtask
 	
 	initial begin
@@ -809,6 +831,7 @@ module lab5_testbench ();
 		int p_l2_wtrigger, p_l2_follow_hit, p_l2_follow_miss, p_l2_miss_base;
 		int p_l3_wtrigger, p_l3_follow_hit, p_l3_follow_miss, p_l3_miss_base;
 		int e_l2_bsize_probe, e_l2_capacity_probe, e_l2_assoc_probe;
+		int meas_l2_blocksize, meas_l2_num_blocks, meas_l2_assoc;
 		
 		dummy_data <= '0;
 		$display("==============================================================");
@@ -877,10 +900,18 @@ module lab5_testbench ();
 				e_l2_capacity_probe,
 				e_l2_assoc_probe
 			);
+			// Snapshot the directly-measured values BEFORE any sanitization,
+			// so the transcript can prove the measured tuple is what we report.
+			meas_l2_blocksize = l2_blocksize;
+			meas_l2_num_blocks = l2_num_blocks;
+			meas_l2_assoc = l2_assoc;
 		end else begin
 			e_l2_bsize_probe = -1;
 			e_l2_capacity_probe = -1;
 			e_l2_assoc_probe = -1;
+			meas_l2_blocksize = 0;
+			meas_l2_num_blocks = 0;
+			meas_l2_assoc = 0;
 		end
 		
 		// 6b) Geometry sanity pass (force physically valid concrete values).
@@ -969,11 +1000,17 @@ module lab5_testbench ();
 		cap_l2 = has_l2 ? (l2_num_blocks * l2_blocksize) : 0;
 		cap_l3 = has_l3 ? (l3_num_blocks * l3_blocksize) : 0;
 		
-		if (has_l2 && cap_l2 <= cap_l1) begin
+		// Only "fix" L2 capacity if the direct measurement clearly failed
+		// (fell back to the minimum of 2 blocks). A valid measurement is trusted
+		// as-is, even if it implies a smaller-than-expected capacity, so we never
+		// fabricate a number on top of a real measurement.
+		if (has_l2 && cap_l2 <= cap_l1 && meas_l2_num_blocks <= 2) begin
 			while ((l2_num_blocks * l2_blocksize) <= cap_l1) begin
 				l2_num_blocks = l2_num_blocks << 1;
 			end
 			geom_sanitized = 1;
+		end else if (has_l2 && cap_l2 <= cap_l1) begin
+			$display("  [WARN] measured L2 capacity (%0d B) <= L1 capacity (%0d B); trusting measurement, NOT forcing.", cap_l2, cap_l1);
 		end
 		if (has_l3) begin
 			cap_l2 = l2_num_blocks * l2_blocksize;
@@ -1116,6 +1153,10 @@ module lab5_testbench ();
 		$display("Evidence summary:");
 		$display("  Tier delays: t0=%0d t1=%0d t2=%0d t3=%0d ntiers=%0d", t0, t1, t2, t3, ntiers);
 		$display("  L2 isolated probes: bsize_delay=%0d cap_delay=%0d assoc_delay=%0d", e_l2_bsize_probe, e_l2_capacity_probe, e_l2_assoc_probe);
+		$display("  L2 MEASURED (pre-sanitize): blocksize=%0d num_blocks=%0d assoc=%0d", meas_l2_blocksize, meas_l2_num_blocks, meas_l2_assoc);
+		$display("  L2 FINAL    (reported)    : blocksize=%0d num_blocks=%0d assoc=%0d", l2_blocksize, l2_num_blocks, l2_assoc);
+		if (has_l2 && (meas_l2_blocksize != l2_blocksize || meas_l2_num_blocks != l2_num_blocks || meas_l2_assoc != l2_assoc))
+			$display("  [NOTE] L2 final differs from measured => sanitizer altered a value; trust MEASURED unless it is 0/invalid.");
 		$display("  L3 confirm sweep: has_l3=%0d unique=%0d vals={%0d,%0d,%0d,%0d,%0d,%0d}", l3_confirm, l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5);
 		$display("  Eviction points (#blocks): L1=%0d L2=%0d L3=%0d", ev1, ev2, ev3);
 		$display("  Capacities (bytes): L1=%0d L2=%0d L3=%0d", cap1_bytes, cap2_bytes, cap3_bytes);
