@@ -245,6 +245,31 @@ module lab5_testbench ();
 		isPow2 = (x > 0) && ((x & (x-1)) == 0);
 	endfunction
 	
+	function int floorPow2;
+		input int x;
+		int p;
+		begin
+			if (x <= 1) begin
+				floorPow2 = 1;
+			end else begin
+				p = 1;
+				while ((p << 1) <= x) p = p << 1;
+				floorPow2 = p;
+			end
+		end
+	endfunction
+	
+	function int clampInt;
+		input int x;
+		input int lo;
+		input int hi;
+		begin
+			if (x < lo) clampInt = lo;
+			else if (x > hi) clampInt = hi;
+			else clampInt = x;
+		end
+	endfunction
+	
 	function int tierIndex;
 		input int d;
 		input int ntiers;
@@ -628,6 +653,9 @@ module lab5_testbench ();
 		int l1_num_blocks, l2_num_blocks, l3_num_blocks;
 		int has_l2, has_l3;
 		int l1_repl_code, l2_repl_code, l3_repl_code;
+		int raw_l1_blocks, raw_l2_blocks, raw_l3_blocks;
+		int geom_sanitized;
+		int cap_l1, cap_l2, cap_l3;
 		int e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss;
 		int e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss;
 		int e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss;
@@ -687,6 +715,107 @@ module lab5_testbench ();
 		if (l2_num_blocks < 0) l2_num_blocks = 0;
 		if (l3_num_blocks < 0) l3_num_blocks = 0;
 		
+		// 6b) Geometry sanity pass (force physically valid concrete values).
+		geom_sanitized = 0;
+		raw_l1_blocks = l1_num_blocks;
+		raw_l2_blocks = l2_num_blocks;
+		raw_l3_blocks = l3_num_blocks;
+		
+		if (l1_blocksize < 8) begin
+			l1_blocksize = 8;
+			geom_sanitized = 1;
+		end
+		if (!isPow2(l1_blocksize)) begin
+			l1_blocksize = floorPow2(l1_blocksize);
+			geom_sanitized = 1;
+		end
+		if (l1_num_blocks < 1) begin
+			l1_num_blocks = 1;
+			geom_sanitized = 1;
+		end
+		if (!isPow2(l1_num_blocks)) begin
+			l1_num_blocks = floorPow2(l1_num_blocks);
+			geom_sanitized = 1;
+		end
+		
+		if (has_l2) begin
+			if (l2_blocksize < 8) begin
+				l2_blocksize = l1_blocksize;
+				geom_sanitized = 1;
+			end
+			if (!isPow2(l2_blocksize)) begin
+				l2_blocksize = floorPow2(l2_blocksize);
+				geom_sanitized = 1;
+			end
+			if (l2_num_blocks < 2) begin
+				l2_num_blocks = 2;
+				geom_sanitized = 1;
+			end
+			if (!isPow2(l2_num_blocks)) begin
+				l2_num_blocks = floorPow2(l2_num_blocks);
+				geom_sanitized = 1;
+			end
+		end else begin
+			l2_blocksize = 0;
+			l2_num_blocks = 0;
+		end
+		
+		if (has_l3) begin
+			if (l3_blocksize < 8) begin
+				l3_blocksize = l2_blocksize;
+				geom_sanitized = 1;
+			end
+			if (!isPow2(l3_blocksize)) begin
+				l3_blocksize = floorPow2(l3_blocksize);
+				geom_sanitized = 1;
+			end
+			if (l3_num_blocks < 2) begin
+				// Fallback if raw L3 capacity probe is weak: at least one step above L2.
+				l3_num_blocks = (l2_num_blocks > 0) ? (l2_num_blocks << 1) : 2;
+				geom_sanitized = 1;
+			end
+			if (!isPow2(l3_num_blocks)) begin
+				l3_num_blocks = floorPow2(l3_num_blocks);
+				geom_sanitized = 1;
+			end
+		end else begin
+			l3_blocksize = 0;
+			l3_num_blocks = 0;
+		end
+		
+		// 6c) Apply "known feature" constraints from lab handout.
+		// - blocksize nondecreasing down hierarchy
+		// - total capacity increases down hierarchy
+		// - associativity nondecreasing down hierarchy (enforced later)
+		if (has_l2 && l2_blocksize < l1_blocksize) begin
+			l2_blocksize = l1_blocksize;
+			geom_sanitized = 1;
+		end
+		if (has_l3 && l3_blocksize < l2_blocksize) begin
+			l3_blocksize = l2_blocksize;
+			geom_sanitized = 1;
+		end
+		
+		cap_l1 = l1_num_blocks * l1_blocksize;
+		cap_l2 = has_l2 ? (l2_num_blocks * l2_blocksize) : 0;
+		cap_l3 = has_l3 ? (l3_num_blocks * l3_blocksize) : 0;
+		
+		if (has_l2 && cap_l2 <= cap_l1) begin
+			while ((l2_num_blocks * l2_blocksize) <= cap_l1) begin
+				l2_num_blocks = l2_num_blocks << 1;
+			end
+			geom_sanitized = 1;
+		end
+		if (has_l3) begin
+			cap_l2 = l2_num_blocks * l2_blocksize;
+			if (cap_l3 <= cap_l2) begin
+				while ((l3_num_blocks * l3_blocksize) <= cap_l2) begin
+					l3_num_blocks = l3_num_blocks << 1;
+				end
+				geom_sanitized = 1;
+			end
+		end
+		
 		// 7) Associativity + replacement policy guesses.
 		inferAssociativity(t0, cap1_bytes, l1_blocksize, 0, l1_assoc);
 		inferReplacementPolicy(t0, cap1_bytes, l1_blocksize, 0, l1_assoc, l1_repl);
@@ -709,6 +838,40 @@ module lab5_testbench ();
 		if (l1_assoc < 1) l1_assoc = 1;
 		if (l2_assoc < 1) l2_assoc = 1;
 		if (l3_assoc < 1) l3_assoc = 1;
+		if (has_l2 && l2_assoc < l1_assoc) begin
+			l2_assoc = l1_assoc;
+			geom_sanitized = 1;
+		end
+		if (has_l3 && l3_assoc < l2_assoc) begin
+			l3_assoc = l2_assoc;
+			geom_sanitized = 1;
+		end
+		l1_assoc = clampInt(l1_assoc, 1, l1_num_blocks);
+		l2_assoc = has_l2 ? clampInt(l2_assoc, 1, l2_num_blocks) : 0;
+		l3_assoc = has_l3 ? clampInt(l3_assoc, 1, l3_num_blocks) : 0;
+		if (!isPow2(l1_assoc)) l1_assoc = floorPow2(l1_assoc);
+		if (has_l2 && !isPow2(l2_assoc)) l2_assoc = floorPow2(l2_assoc);
+		if (has_l3 && !isPow2(l3_assoc)) l3_assoc = floorPow2(l3_assoc);
+		
+		// 7b) Timing consistency fallback to avoid impossible/zero local hit times.
+		if (has_l2 && l2_hit_time <= 0) begin
+			l2_hit_time = (e_l2_rhit > t0) ? (e_l2_rhit - t0) : 1;
+			geom_sanitized = 1;
+		end
+		if (has_l3 && l3_hit_time <= 0) begin
+			l3_hit_time = (e_l3_rhit > (t0 + l2_hit_time)) ? (e_l3_rhit - t0 - l2_hit_time) : 1;
+			geom_sanitized = 1;
+		end
+		if (mm_hit_time <= 0) begin
+			if (has_l3 && e_l3_rmiss > 0)
+				mm_hit_time = e_l3_rmiss - t0 - l2_hit_time - l3_hit_time;
+			else if (has_l2 && e_l2_rmiss > 0)
+				mm_hit_time = e_l2_rmiss - t0 - l2_hit_time;
+			else
+				mm_hit_time = 1;
+			if (mm_hit_time <= 0) mm_hit_time = 1;
+			geom_sanitized = 1;
+		end
 		
 		// Normalize replacement coding to table format: 1=LRU, 0=Random.
 		l1_repl_code = (l1_assoc == 1) ? 1 : ((l1_repl == 1) ? 1 : 0);
@@ -778,6 +941,7 @@ module lab5_testbench ();
 		$display("  L3 confirm sweep: has_l3=%0d unique=%0d vals={%0d,%0d,%0d,%0d,%0d,%0d}", l3_confirm, l3_nuniq, l3_u0, l3_u1, l3_u2, l3_u3, l3_u4, l3_u5);
 		$display("  Eviction points (#blocks): L1=%0d L2=%0d L3=%0d", ev1, ev2, ev3);
 		$display("  Capacities (bytes): L1=%0d L2=%0d L3=%0d", cap1_bytes, cap2_bytes, cap3_bytes);
+		$display("  Geometry sanitize: applied=%0d raw_blocks={L1:%0d,L2:%0d,L3:%0d}", geom_sanitized, raw_l1_blocks, raw_l2_blocks, raw_l3_blocks);
 		$display("======================================================");
 		
 		$stop();
