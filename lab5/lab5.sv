@@ -612,7 +612,7 @@ module lab5_testbench ();
 		// If write-hit includes clear extra lower-level latency, treat as write-through.
 		write_policy = (e_whit > e_rhit) ? 1 : 0;
 		
-		// If writes return faster than corresponding cold reads, likely buffered.
+		// Provisional (will be overridden by dedicated proof sequence).
 		has_write_buffer = (e_wmiss < e_rmiss) ? 1 : 0;
 		
 		// Guard fallback: never leave uninitialized semantic values.
@@ -620,6 +620,67 @@ module lab5_testbench ();
 			write_policy = 0;
 		if (!(has_write_buffer == 0 || has_write_buffer == 1))
 			has_write_buffer = 0;
+	endtask
+	
+	// Dedicated write-buffer test:
+	// Compare a baseline miss versus a sequence with an immediately preceding write
+	// that should trigger lower-level traffic. If the write returns early but the
+	// following miss is delayed, that's strong evidence of buffering.
+	task proveWriteBufferAtLevel;
+		input int target_addr;
+		input int upper_evict_blocks;
+		input int l1_blocksize;
+		input int write_policy; // 1: WT, 0: WB
+		output int has_write_buffer;
+		output int p_write_trigger;
+		output int p_follow_hit;
+		output int p_follow_miss;
+		output int p_miss_base;
+		
+		int j, junk;
+		int addrA, addrB, addrC;
+		logic [DATA_WIDTH-1:0][7:0] rd, wr0, wr1;
+		
+		addrA = target_addr;
+		addrB = target_addr + 16*l1_blocksize;
+		addrC = target_addr + 8192 + 32*l1_blocksize;
+		wr0 = 64'hA5A5A5A5_5A5A5A5A ^ target_addr;
+		wr1 = 64'hC3C3C3C3_3C3C3C3C ^ target_addr;
+		
+		// If not write-through-like, default to no-buffer for this probe style.
+		if (write_policy == 0) begin
+			has_write_buffer = 0;
+			p_write_trigger = 0;
+			p_follow_hit = 0;
+			p_follow_miss = 0;
+			p_miss_base = 0;
+		end else begin
+			// Baseline miss latency with same setup but no pending write.
+			resetMem();
+			readMem(addrA, rd, junk);
+			readMem(addrB, rd, junk);
+			for (j=1; j<=upper_evict_blocks; j++) begin
+				readMem((131072 + j*l1_blocksize), rd, junk);
+			end
+			readMem(addrC, rd, p_miss_base);
+			
+			// Pending-write sequence.
+			resetMem();
+			readMem(addrA, rd, junk);
+			readMem(addrB, rd, junk);
+			for (j=1; j<=upper_evict_blocks; j++) begin
+				readMem((131072 + j*l1_blocksize), rd, junk);
+			end
+			writeMem(addrA, wr0, 8'hFF, p_write_trigger);
+			readMem(addrB, rd, p_follow_hit);
+			writeMem(addrB, wr1, 8'hFF, junk);
+			readMem(addrC, rd, p_follow_miss);
+			
+			// Evidence signature:
+			// 1) trigger write completes faster than an uncompromised miss
+			// 2) later miss is slower than baseline (must wait for pending write drain)
+			has_write_buffer = ((p_write_trigger < p_miss_base) && (p_follow_miss > p_miss_base)) ? 1 : 0;
+		end
 	endtask
 	
 	task inferL1WriteAllocate;
@@ -660,6 +721,9 @@ module lab5_testbench ();
 		int e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss;
 		int e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss;
 		int e_l1_wa_wmiss, e_l1_r_after_w;
+		int p_l1_wtrigger, p_l1_follow_hit, p_l1_follow_miss, p_l1_miss_base;
+		int p_l2_wtrigger, p_l2_follow_hit, p_l2_follow_miss, p_l2_miss_base;
+		int p_l3_wtrigger, p_l3_follow_hit, p_l3_follow_miss, p_l3_miss_base;
 		
 		dummy_data <= '0;
 		$display("==============================================================");
@@ -881,21 +945,26 @@ module lab5_testbench ();
 		// 8) Write behavior with evidence delays.
 		inferL1WriteAllocate(t0, l1_write_allocate, e_l1_wa_wmiss, e_l1_r_after_w);
 		inferWriteBehaviorAtLevel(0, 0, l1_blocksize, t0, l1_write_through, l1_write_buffer, e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss);
+		proveWriteBufferAtLevel(0, 0, l1_blocksize, l1_write_through, l1_write_buffer, p_l1_wtrigger, p_l1_follow_hit, p_l1_follow_miss, p_l1_miss_base);
 		
 		if (has_l2) begin
 			inferWriteBehaviorAtLevel(0, (ev1 > 0) ? (ev1 + 4) : 16, l1_blocksize, t1, l2_write_through, l2_write_buffer, e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss);
+			proveWriteBufferAtLevel(0, (ev1 > 0) ? (ev1 + 4) : 16, l1_blocksize, l2_write_through, l2_write_buffer, p_l2_wtrigger, p_l2_follow_hit, p_l2_follow_miss, p_l2_miss_base);
 		end else begin
 			l2_write_through = 0;
 			l2_write_buffer = 0;
 			e_l2_rhit = 0; e_l2_whit = 0; e_l2_rmiss = 0; e_l2_wmiss = 0;
+			p_l2_wtrigger = 0; p_l2_follow_hit = 0; p_l2_follow_miss = 0; p_l2_miss_base = 0;
 		end
 		
 		if (has_l3) begin
 			inferWriteBehaviorAtLevel(0, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 16) : 64), l1_blocksize, t2, l3_write_through, l3_write_buffer, e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss);
+			proveWriteBufferAtLevel(0, (ev2 > 0) ? (ev2 + 4) : ((ev1 > 0) ? (ev1 + 16) : 64), l1_blocksize, l3_write_through, l3_write_buffer, p_l3_wtrigger, p_l3_follow_hit, p_l3_follow_miss, p_l3_miss_base);
 		end else begin
 			l3_write_through = 0;
 			l3_write_buffer = 0;
 			e_l3_rhit = 0; e_l3_whit = 0; e_l3_rmiss = 0; e_l3_wmiss = 0;
+			p_l3_wtrigger = 0; p_l3_follow_hit = 0; p_l3_follow_miss = 0; p_l3_miss_base = 0;
 		end
 		
 		$display("");
@@ -911,6 +980,7 @@ module lab5_testbench ();
 		$display("  Write buffer (1=yes,0=no)   : %0d", l1_write_buffer);
 		$display("    Evidence L1: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l1_rhit, e_l1_whit, e_l1_rmiss, e_l1_wmiss);
 		$display("    Evidence WA: write_miss=%0d read_after_write=%0d", e_l1_wa_wmiss, e_l1_r_after_w);
+		$display("    Buffer proof L1: w_trigger=%0d follow_hit=%0d follow_miss=%0d miss_base=%0d", p_l1_wtrigger, p_l1_follow_hit, p_l1_follow_miss, p_l1_miss_base);
 		
 		$display("L2 Cache");
 		$display("  Blocksize (Bytes): %0d", has_l2 ? l2_blocksize : 0);
@@ -921,6 +991,7 @@ module lab5_testbench ();
 		$display("  Write policy (1=WT,0=WB)    : %0d", has_l2 ? l2_write_through : 0);
 		$display("  Write buffer (1=yes,0=no)   : %0d", has_l2 ? l2_write_buffer : 0);
 		$display("    Evidence L2: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l2_rhit, e_l2_whit, e_l2_rmiss, e_l2_wmiss);
+		$display("    Buffer proof L2: w_trigger=%0d follow_hit=%0d follow_miss=%0d miss_base=%0d", p_l2_wtrigger, p_l2_follow_hit, p_l2_follow_miss, p_l2_miss_base);
 		
 		$display("L3 Cache");
 		$display("  Is there L3 cache (1=yes,0=no): %0d", has_l3);
@@ -932,6 +1003,7 @@ module lab5_testbench ();
 		$display("  Write policy (1=WT,0=WB)    : %0d", has_l3 ? l3_write_through : 0);
 		$display("  Write buffer (1=yes,0=no)   : %0d", has_l3 ? l3_write_buffer : 0);
 		$display("    Evidence L3: r_hit=%0d w_hit=%0d r_miss=%0d w_miss=%0d", e_l3_rhit, e_l3_whit, e_l3_rmiss, e_l3_wmiss);
+		$display("    Buffer proof L3: w_trigger=%0d follow_hit=%0d follow_miss=%0d miss_base=%0d", p_l3_wtrigger, p_l3_follow_hit, p_l3_follow_miss, p_l3_miss_base);
 		
 		$display("Main Memory");
 		$display("  Hit time (cycles): %0d", mm_hit_time);
